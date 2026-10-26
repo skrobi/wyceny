@@ -1,0 +1,8 @@
+# dane z bazy i raporty zawierają dane osobowe – nie commitujemy ich
+data/
+raporty/
+config.toml
+__pycache__/
+*.pyc
+.venv/
+~$*.xlsx
