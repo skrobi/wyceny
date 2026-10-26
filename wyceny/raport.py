@@ -6,13 +6,13 @@ from pathlib import Path
 import pandas as pd
 import xlsxwriter
 
-from . import kontrola
-from .model import Model
+from . import kontrola, proces
+from .model import Model, _do_lokalnego
 
 NAVY = "#1F3864"
 
 SLOWNIK = [
-    ("Zapytanie", "Zapytanie ofertowe (TenderEnquiry). Analizowane są te, które wpłynęły od daty startu."),
+    ("Zapytanie", "Zapytanie ofertowe (TenderEnquiry). Analizowane są te o TenderEnquiryId od pierwszego analizowanego (758); wcześniejsze to głównie testy."),
     ("Workflow główny", "Obieg zapytania (TenderEnquiryWorkflow) wskazany w TenderEnquiry.WorkflowId."),
     ("Zadanie", "Krok workflow czekający na decyzję użytkownika (UserTask, zdarzenie UserAction)."),
     ("Etap", "Opis zadania (Prompt), np. „Uzupełnienie technologii (DTT/W)”."),
@@ -25,8 +25,25 @@ SLOWNIK = [
     ("Cofnięcie", "Decyzja zaczynająca się od „Zwrócono…” lub „Wymagana…”."),
     ("Czas (dni)", "Od przypisania do decyzji; dla otwartych – do momentu pobrania danych. Dni kalendarzowe."),
     ("Mediana / P80", "Połowa / 80% zakończonych zadań trwała nie dłużej niż podana wartość."),
+    ("Faza", "Grupa etapów o tym samym celu (np. Zbieranie danych = uzupełnienia kosztów i technologii)."),
+    ("Czas w fazie", "Łączny czas, gdy w fazie było otwarte choć jedno zadanie (zadania równoległe liczone raz)."),
+    ("Rozpiętość fazy", "Od pierwszego przypisania do ostatniej decyzji w fazie – razem z przerwami."),
+    ("Runda", "Zadania fazy nakładające się w czasie. Powrót do fazy po cofnięciu = kolejna runda."),
+    ("Gałąź krytyczna", "Grupa, która w zakończonej rundzie zbierania danych skończyła ostatnia."),
+    ("Opóźnienie", "O ile dni grupa ostatnia skończyła później niż przedostatnia – tyle zyskałaby cała faza."),
+    ("Udział w czasie realizacji", "Suma czasów fazy / suma czasów realizacji zamkniętych zapytań."),
     ("Zadania wyjścia z obiegu", "„Ewentualne zmiany w RFQ/BOM” – pomijane we wszystkich zestawieniach."),
 ]
+
+
+# polskie nagłówki kolumn w arkuszach analitycznych (arkusze danych źródłowych zostają z nazwami technicznymi)
+NAGLOWKI = {
+    "TenderEnquiryNumber": "Nr zapytania", "Client": "Klient", "OwnerName": "Właściciel", "Prompt": "Etap (zadanie)",
+    "Wykonal": "Wykonał", "Przypisano": "Przypisano", "Zakonczono": "Zakończono", "CzasDni": "Czas (dni)",
+    "MaksPoziom": "Maks. poziom konsultacji", "CzasWFazieDni": "Czas w fazie (dni)",
+    "RozpietoscDni": "Rozpiętość (dni)", "CzyKonsultacja": "Konsultacja?", "Komu": "Komu (grupa / osoba)",
+    "ZawieszonaKonsultacja": "Zawieszona konsultacja",
+}
 
 
 class Arkusz:
@@ -77,7 +94,7 @@ class Arkusz:
         return ws
 
 
-def zapisz(m: Model, dzien, sciezka: Path) -> Path:
+def zapisz(m: Model, dzien, sciezka: Path, prog_porzucenia_dni: float = 30, strefa: str = "Europe/Warsaw") -> Path:
     sciezka.parent.mkdir(parents=True, exist_ok=True)
     wb = xlsxwriter.Workbook(str(sciezka))
     a = Arkusz(wb)
@@ -89,9 +106,37 @@ def zapisz(m: Model, dzien, sciezka: Path) -> Path:
     a.tabela("Kontrola danych", kontrola.kontrole(m), "Kontrola jakości danych",
              "Każda pozycja z liczbą > 0 wymaga sprawdzenia, zanim zaufamy dalszym analizom.",
              szerokosci={"Kontrola": 40, "Liczba": 9, "Opis": 90, "Przykłady": 50})
+    g = proces.zadania_glowne(m)
+    a.tabela("Fazy", proces.fazy(m, g), "Fazy procesu",
+             "Czas w fazie liczony dla faz zakończonych; udział w czasie realizacji – dla zamkniętych zapytań.",
+             szerokosci={"Faza": 28},
+             procenty=("% zapytań z powrotem do fazy", "Udział w czasie realizacji"))
+    a.tabela("Zbieranie danych", proces.galaz_krytyczna(g), "Faza równoległa – kto wydłuża zbieranie danych",
+             "Dla każdej grupy: ile razy kończyła rundę ostatnia i o ile dni ją wydłużyła względem następnej grupy.",
+             szerokosci={"Grupa": 14}, procenty=("% rund, w których ostatnia",))
+    a.tabela("Konsultacje a czas", proces.wplyw_konsultacji(g), "Czas zadań z konsultacjami i bez",
+             "Zakończone zadania główne; tylko etapy, w których były konsultacje.",
+             szerokosci={"Etap (zadanie)": 45})
     a.tabela("Etapy", kontrola.etapy(m), "Etapy – pierwsze spojrzenie",
              "Zadania główne wg etapu i grupy oraz konsultacje uruchomione z tych zadań. Czasy w dniach kalendarzowych.",
              szerokosci={"Etap (zadanie)": 45}, procenty=("% zadań z konsultacją",))
+    a.tabela("Rozkład czasów", proces.rozklad(g), "Rozkład czasów zadań",
+             "Liczba zakończonych zadań głównych w przedziałach czasu. Dwa skupiska = etap o „dwóch obliczach”.",
+             szerokosci={"Etap (zadanie)": 45})
+    a.tabela("Porzucone", proces.porzucone(m, prog_porzucenia_dni).rename(columns=NAGLOWKI), f"Otwarte dłużej niż {prog_porzucenia_dni:g} dni",
+             "Zadania i konsultacje do wyjaśnienia: czy sprawa jest jeszcze prowadzona?", szerokosci={"Etap": 40})
+    a.tabela("Najdłuższe zadania", proces.najdluzsze(g).rename(columns=NAGLOWKI), "50 najdłuższych zakończonych zadań",
+             "Przypadki do omówienia z zespołem.", szerokosci={"Etap (zadanie)": 40})
+    o = proces.os_czasu(m, g)
+    if not o.empty:
+        o["Start"] = _do_lokalnego(o["StartUtc"], strefa)
+        o["Koniec"] = _do_lokalnego(o["KoniecUtc"], strefa).where(o["FazaZakonczona"])
+        o = o[["TenderEnquiryNumber", "Client", "OwnerName", "Faza", "Start", "Koniec", "CzasWFazieDni",
+               "RozpietoscDni", "Zadania", "Rundy", "Otwarte", "Konsultacje", "Cofnięcia", "Grupy"]
+              ].rename(columns=NAGLOWKI)
+    a.tabela("Oś czasu", o, "Oś czasu zapytań – zapytanie × faza",
+             "Koniec pusty = faza w toku. Filtruj po numerze zapytania, żeby zobaczyć jego przebieg.",
+             szerokosci={"Grupy": 40})
     a.tabela("Konsultacje", kontrola.konsultacje(m), "Konsultacje (przekierowania)",
              "Każde zadanie „Konsultacja” z jego zadaniem głównym, poziomem i rundą.",
              szerokosci={"EtapGlowny": 40})

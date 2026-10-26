@@ -9,7 +9,9 @@ szyfrowanie = true
 ufaj_certyfikatowi = true
 
 [analiza]
-# Pomijamy dane sprzed rzeczywistego startu aplikacji.
+# Pierwsze analizowane zapytanie (TenderEnquiryId) – wcześniejsze to głównie testy.
+pierwsze_zapytanie_id = 758
+# Techniczna dolna granica pobierania workflow, kroków i zdarzeń (obiegi zapytań z zakresu powstały po niej).
 data_startu = "2026-04-01"
 # Zadania „wyjścia z obiegu” – nie są brane pod uwagę (porównanie po początku opisu zadania).
 pomijane_zadania = ["Ewentualne zmiany w RFQ", "Ewentualne zmiany w BOM"]
@@ -17,6 +19,10 @@ pomijane_zadania = ["Ewentualne zmiany w RFQ", "Ewentualne zmiany w BOM"]
 statusy_zamkniete = [9, 10, 11, 12, 13]
 # Strefa czasowa raportu (czasy w bazie workflow są w UTC).
 strefa_czasowa = "Europe/Warsaw"
+# Otwarte zadanie starsze niż tyle dni trafia do arkusza „Porzucone”.
+prog_porzucenia_dni = 30
+# Plik JSON dla asystenta AI: osoby zastępowane pseudonimami („Osoba 07”). Wyłącz tylko do użytku wewnętrznego.
+json_anonimizacja = true
 
 [katalogi]
 dane = "data"

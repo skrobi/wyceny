@@ -16,7 +16,8 @@ from .config import KATALOG_PROJEKTU, Konfiguracja
 
 KATALOG_SQL = KATALOG_PROJEKTU / "sql"
 
-# nazwa tabeli w migawce -> (plik SQL, kolumny z datami)
+# nazwa tabeli w migawce -> (plik SQL, kolumny z datami); parametr zapytania: data graniczna,
+# a dla zapytań ofertowych – pierwsze TenderEnquiryId (PARAMETR_ID)
 TABELE = {
     "zapytania": ("01_zapytania.sql", [
         "DateRequestReceived", "StartDateOfDataCollection", "DataCompletionDeadline",
@@ -26,7 +27,11 @@ TABELE = {
     "kroki": ("03_kroki.sql", ["StartTime", "EndTime"]),
     "atrybuty": ("04_atrybuty.sql", []),
     "zdarzenia": ("05_zdarzenia.sql", ["EventTime"]),
+    "powiazania": ("06_powiazania_zapytan.sql", ["DateRequestReceived"]),
 }
+PARAMETR_ID = {"zapytania"}
+# tabele, których może brakować w starszych migawkach
+OPCJONALNE = {"powiazania": ["TenderEnquiryId", "TenderEnquiryNumber", "WorkflowId", "DateRequestReceived"]}
 
 
 @dataclass
@@ -38,6 +43,7 @@ class Migawka:
     kroki: pd.DataFrame
     atrybuty: pd.DataFrame
     zdarzenia: pd.DataFrame
+    powiazania: pd.DataFrame
 
 
 def pobierz(kfg: Konfiguracja, dzien: date | None = None) -> Path:
@@ -53,12 +59,13 @@ def pobierz(kfg: Konfiguracja, dzien: date | None = None) -> Path:
         for nazwa, (plik, _) in TABELE.items():
             sql = (KATALOG_SQL / plik).read_text(encoding="utf-8")
             kursor = conn.cursor()
-            kursor.execute(sql, start)
+            kursor.execute(sql, kfg.analiza.pierwsze_zapytanie_id if nazwa in PARAMETR_ID else start)
             kolumny = [k[0] for k in kursor.description]
             df = pd.DataFrame.from_records(kursor.fetchall(), columns=kolumny)
             df.to_csv(katalog / f"{nazwa}.csv", index=False, encoding="utf-8")
             print(f"  {nazwa}: {len(df)} wierszy")
-    meta = {"pobrano_utc": pobrano.isoformat(), "data_startu": kfg.analiza.data_startu.isoformat()}
+    meta = {"pobrano_utc": pobrano.isoformat(), "data_startu": kfg.analiza.data_startu.isoformat(),
+            "pierwsze_zapytanie_id": kfg.analiza.pierwsze_zapytanie_id}
     (katalog / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return katalog
 
@@ -85,7 +92,11 @@ def wczytaj(kfg: Konfiguracja, dzien: date | None = None) -> Migawka:
     katalog = kfg.katalog_danych / dzien.isoformat()
     tabele = {}
     for nazwa, (_, daty) in TABELE.items():
-        df = pd.read_csv(katalog / f"{nazwa}.csv", encoding="utf-8", low_memory=False)
+        plik = katalog / f"{nazwa}.csv"
+        if not plik.exists() and nazwa in OPCJONALNE:
+            tabele[nazwa] = pd.DataFrame(columns=OPCJONALNE[nazwa])
+            continue
+        df = pd.read_csv(plik, encoding="utf-8", low_memory=False)
         for kol in daty:
             df[kol] = pd.to_datetime(df[kol], errors="coerce")
         tabele[nazwa] = df
