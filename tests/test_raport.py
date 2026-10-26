@@ -43,6 +43,8 @@ class TestMigawkaIRaport(unittest.TestCase):
         self.assertEqual(k["Workflow zapytań spoza zakresu"], 1)
         self.assertEqual(k["Workflow bez zapytania"], 1)
         self.assertEqual(k["Konsultacje z obiegów sprzed daty granicznej"], 1)
+        self.assertEqual(k["Przekazane bez daty przekazania klientowi"], 1)
+        self.assertEqual(k["Przekazane bez terminu klienta"], 0)
         self.assertEqual(k["Zadania zakończone bez czasu zakończenia"], 0)
 
     def test_etapy(self):

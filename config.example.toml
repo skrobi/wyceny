@@ -23,6 +23,16 @@ strefa_czasowa = "Europe/Warsaw"
 prog_porzucenia_dni = 30
 # Plik JSON dla asystenta AI: osoby zastępowane pseudonimami („Osoba 07”). Wyłącz tylko do użytku wewnętrznego.
 json_anonimizacja = true
+# Statusy zapytania oznaczające przekazanie oferty klientowi (ocena terminowości).
+statusy_przekazane = [9]
+# Ile dni po grupie, na którą się czeka, może skończyć grupa zależna, by opóźnienie przypisać tamtej.
+tolerancja_zaleznosci_dni = 1.0
+# Słownik konsultant (eID) -> dział. Program tworzy szablon slowniki/konsultanci.csv – uzupełnij kolumnę Dzial.
+slownik_konsultantow = "slowniki/konsultanci.csv"
+
+# Grupa -> grupy, na których dane czeka w fazie zbierania danych.
+[analiza.zaleznosci_grup]
+DJ = ["DTTW"]
 
 [katalogi]
 dane = "data"

@@ -7,6 +7,7 @@ import pandas as pd
 import xlsxwriter
 
 from . import kontrola, proces
+from .config import Analiza
 from .model import Model, _do_lokalnego
 
 NAVY = "#1F3864"
@@ -31,6 +32,12 @@ SLOWNIK = [
     ("Runda", "Zadania fazy nakładające się w czasie. Powrót do fazy po cofnięciu = kolejna runda."),
     ("Gałąź krytyczna", "Grupa, która w zakończonej rundzie zbierania danych skończyła ostatnia."),
     ("Opóźnienie", "O ile dni grupa ostatnia skończyła później niż przedostatnia – tyle zyskałaby cała faza."),
+    ("Przyczyna opóźnienia rundy", "Grupa, której przypisano wydłużenie rundy – z uwzględnieniem zależności "
+     "(np. gdy DJ kończy zaraz po DTTW, przyczyną jest DTTW)."),
+    ("Czas własny po otrzymaniu danych", "Ile grupa zależna pracowała po zakończeniu grupy, na którą czekała."),
+    ("Koszt pętli", "Dni od cofnięcia do ponownego dojścia sprawy do etapu, który cofał."),
+    ("Zmiana zakresu", "Cofnięcie do tworzenia RFQ – celowe, by dodać lub usunąć pozycje i zachować spójny przebieg."),
+    ("Terminowość", "Oddano (TransferToCustomerDate lub ostatnia decyzja w Przygotowaniu oferty) ≤ termin klienta."),
     ("Udział w czasie realizacji", "Suma czasów fazy / suma czasów realizacji zamkniętych zapytań."),
     ("Zadania wyjścia z obiegu", "„Ewentualne zmiany w RFQ/BOM” – pomijane we wszystkich zestawieniach."),
 ]
@@ -94,7 +101,11 @@ class Arkusz:
         return ws
 
 
-def zapisz(m: Model, dzien, sciezka: Path, prog_porzucenia_dni: float = 30, strefa: str = "Europe/Warsaw") -> Path:
+def zapisz(m: Model, dzien, sciezka: Path, analiza: Analiza | None = None,
+           slownik_konsultantow: dict[str, str] | None = None) -> Path:
+    analiza = analiza or Analiza()
+    slownik_konsultantow = slownik_konsultantow or {}
+    prog = analiza.prog_porzucenia_dni
     sciezka.parent.mkdir(parents=True, exist_ok=True)
     wb = xlsxwriter.Workbook(str(sciezka))
     a = Arkusz(wb)
@@ -103,40 +114,70 @@ def zapisz(m: Model, dzien, sciezka: Path, prog_porzucenia_dni: float = 30, stre
     ws = a.tabela("Podsumowanie", pod, "Analiza wycen – podsumowanie danych",
                   f"Migawka z {dzien}, dane pobrane {m.teraz_utc:%Y-%m-%d %H:%M} UTC.",
                   szerokosci={"Pozycja": 55, "Wartość": 12})
-    a.tabela("Kontrola danych", kontrola.kontrole(m), "Kontrola jakości danych",
-             "Każda pozycja z liczbą > 0 wymaga sprawdzenia, zanim zaufamy dalszym analizom.",
+    a.tabela("Kontrola danych", kontrola.kontrole(m, tuple(analiza.statusy_przekazane)), "Kontrola jakości danych",
+             "Pozycje „Do sprawdzenia” z liczbą > 0 wymagają wyjaśnienia, zanim zaufamy dalszym analizom.",
              szerokosci={"Kontrola": 40, "Liczba": 9, "Opis": 90, "Przykłady": 50})
     g = proces.zadania_glowne(m)
     a.tabela("Fazy", proces.fazy(m, g), "Fazy procesu",
              "Czas w fazie liczony dla faz zakończonych; udział w czasie realizacji – dla zamkniętych zapytań.",
              szerokosci={"Faza": 28},
              procenty=("% zapytań z powrotem do fazy", "Udział w czasie realizacji"))
-    a.tabela("Zbieranie danych", proces.galaz_krytyczna(g), "Faza równoległa – kto wydłuża zbieranie danych",
-             "Dla każdej grupy: ile razy kończyła rundę ostatnia i o ile dni ją wydłużyła względem następnej grupy.",
-             szerokosci={"Grupa": 14}, procenty=("% rund, w których ostatnia",))
+    zal = ", ".join(f"{k} czeka na {'/'.join(v)}" for k, v in analiza.zaleznosci_grup.items()) or "brak"
+    a.tabela("Zbieranie danych",
+             proces.galaz_krytyczna(g, analiza.zaleznosci_grup, analiza.tolerancja_zaleznosci_dni),
+             "Faza równoległa – kto wydłuża zbieranie danych",
+             f"„Przyczyna” uwzględnia zależności ({zal}): gdy grupa zależna kończy do "
+             f"{analiza.tolerancja_zaleznosci_dni:g} dnia po grupie, na którą czeka, opóźnienie idzie na tamtą.",
+             szerokosci={"Grupa": 14}, procenty=("% rund, w których przyczyną",))
+    a.tabela("Zależności grup", proces.zaleznosci_grup(g, analiza.zaleznosci_grup, analiza.tolerancja_zaleznosci_dni),
+             "Weryfikacja zależności między grupami",
+             "Czy grupa zależna rzeczywiście kończy zaraz po grupie, na którą czeka, i ile pracuje sama po otrzymaniu danych.",
+             procenty=("% kończy po grupie, na którą czeka", "% kończy w tolerancji po niej",
+                       "% zamykanych przez tę samą osobę"))
+    t = proces.terminowosc(m, g, analiza.statusy_przekazane)
+    a.tabela("Terminowość", t.rename(columns=NAGLOWKI), "Terminowość ofert przekazanych klientowi",
+             "Data oddania: TransferToCustomerDate, a gdy brak – ostatnia decyzja w „Przygotowaniu oferty”.",
+             szerokosci={"Źródło daty oddania": 30})
+    p = proces.petle(m, g)
+    a.tabela("Pętle", proces.petle_podsumowanie(p), "Pętle cofnięć – koszt",
+             "Koszt pętli = dni od cofnięcia do ponownego dojścia sprawy do etapu, który cofał. "
+             "„Zmiana zakresu” = powrót do tworzenia RFQ (np. dodanie lub usunięcie pozycji).",
+             szerokosci={"Etap cofający": 40, "Typ pętli": 40})
+    a.tabela("Długie oferty", proces.profil_dlugich(m, g), "Przygotowanie oferty trwające ponad 14 dni",
+             "Czym kończą się długie zadania przygotowania oferty – pomaga odróżnić pracę od oczekiwania.",
+             szerokosci={"Decyzja": 40})
     a.tabela("Konsultacje a czas", proces.wplyw_konsultacji(g), "Czas zadań z konsultacjami i bez",
              "Zakończone zadania główne; tylko etapy, w których były konsultacje.",
              szerokosci={"Etap (zadanie)": 45})
+    a.tabela("Konsultacje wg działu", proces.konsultacje_wg_dzialu(m, slownik_konsultantow),
+             "Konsultacje wg działu konsultanta",
+             f"Działy ze słownika {analiza.slownik_konsultantow} – uzupełnij kolumnę Dzial, by zmniejszyć „(nieprzypisany)”.",
+             szerokosci={"Dział": 28, "Etapy": 60})
+    a.tabela("Obciążenie konsultantów", proces.obciazenie_konsultantow(m, slownik_konsultantow),
+             "Obciążenie konsultantów", "Maks. otwartych jednocześnie – ile konsultacji osoba miała naraz w szczycie.",
+             szerokosci={"Konsultant": 32, "Etapy": 60})
     a.tabela("Etapy", kontrola.etapy(m), "Etapy – pierwsze spojrzenie",
              "Zadania główne wg etapu i grupy oraz konsultacje uruchomione z tych zadań. Czasy w dniach kalendarzowych.",
              szerokosci={"Etap (zadanie)": 45}, procenty=("% zadań z konsultacją",))
     a.tabela("Rozkład czasów", proces.rozklad(g), "Rozkład czasów zadań",
              "Liczba zakończonych zadań głównych w przedziałach czasu. Dwa skupiska = etap o „dwóch obliczach”.",
              szerokosci={"Etap (zadanie)": 45})
-    a.tabela("Porzucone", proces.porzucone(m, prog_porzucenia_dni).rename(columns=NAGLOWKI), f"Otwarte dłużej niż {prog_porzucenia_dni:g} dni",
+    a.tabela("Porzucone", proces.porzucone(m, prog).rename(columns=NAGLOWKI), f"Otwarte dłużej niż {prog:g} dni",
              "Zadania i konsultacje do wyjaśnienia: czy sprawa jest jeszcze prowadzona?", szerokosci={"Etap": 40})
     a.tabela("Najdłuższe zadania", proces.najdluzsze(g).rename(columns=NAGLOWKI), "50 najdłuższych zakończonych zadań",
              "Przypadki do omówienia z zespołem.", szerokosci={"Etap (zadanie)": 40})
     o = proces.os_czasu(m, g)
     if not o.empty:
-        o["Start"] = _do_lokalnego(o["StartUtc"], strefa)
-        o["Koniec"] = _do_lokalnego(o["KoniecUtc"], strefa).where(o["FazaZakonczona"])
+        o["Start"] = _do_lokalnego(o["StartUtc"], analiza.strefa_czasowa)
+        o["Koniec"] = _do_lokalnego(o["KoniecUtc"], analiza.strefa_czasowa).where(o["FazaZakonczona"])
         o = o[["TenderEnquiryNumber", "Client", "OwnerName", "Faza", "Start", "Koniec", "CzasWFazieDni",
                "RozpietoscDni", "Zadania", "Rundy", "Otwarte", "Konsultacje", "Cofnięcia", "Grupy"]
               ].rename(columns=NAGLOWKI)
     a.tabela("Oś czasu", o, "Oś czasu zapytań – zapytanie × faza",
              "Koniec pusty = faza w toku. Filtruj po numerze zapytania, żeby zobaczyć jego przebieg.",
              szerokosci={"Grupy": 40})
+    a.tabela("Pętle – lista", p.drop(columns=["TenderEnquiryId"], errors="ignore").rename(columns=NAGLOWKI),
+             "Wszystkie cofnięcia", "", szerokosci={"Etap cofający": 40, "Typ pętli": 40})
     a.tabela("Konsultacje", kontrola.konsultacje(m), "Konsultacje (przekierowania)",
              "Każde zadanie „Konsultacja” z jego zadaniem głównym, poziomem i rundą.",
              szerokosci={"EtapGlowny": 40})

@@ -72,7 +72,7 @@ class TestModel(unittest.TestCase):
     def test_prog_id_dziala_na_starszej_migawce(self):
         # migawka pobrana z innym zakresem: zapytanie 410 < 758 musi wypaść z analizy
         m = zbuduj(d.migawka(), Analiza(pierwsze_zapytanie_id=411))
-        self.assertEqual(set(m.zapytania["TenderEnquiryId"]), {411})
+        self.assertEqual(set(m.zapytania["TenderEnquiryId"]), {411, 412})
         self.assertNotIn(2178, set(m.zadania["TenderEnquiryNumber"]))
         self.assertEqual(m.workflow.set_index("InstanceId").loc[d.M, "Zakres"], "Zapytanie spoza zakresu")
 

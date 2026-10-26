@@ -13,9 +13,10 @@ from pathlib import Path
 import pandas as pd
 
 from . import kontrola, proces
+from .config import Analiza
 from .model import Model
 
-WERSJA_SCHEMATU = 1
+WERSJA_SCHEMATU = 2
 
 
 class Pseudonimy:
@@ -140,10 +141,12 @@ def cofniecia(g: pd.DataFrame) -> list[dict]:
                                           "Decyzja": "decyzja", "Faza powrotu": "faza_powrotu"}))
 
 
-def zbuduj(m: Model, dzien: date, prog_porzucenia_dni: float, anonimizacja: bool = True) -> dict:
+def zbuduj(m: Model, dzien: date, analiza: Analiza | None = None, slownik: dict[str, str] | None = None) -> dict:
+    analiza = analiza or Analiza()
+    slownik = slownik or {}
     z = m.zadania
     g = proces.zadania_glowne(m)
-    p = Pseudonimy(anonimizacja)
+    p = Pseudonimy(analiza.json_anonimizacja)
     p.zarejestruj(z["Konsultant"], z["Wykonal"], z["OwnerName"], m.zapytania["OwnerName"])
 
     def osoby(df: pd.DataFrame, kolumny: list[str]) -> pd.DataFrame:
@@ -153,37 +156,52 @@ def zbuduj(m: Model, dzien: date, prog_porzucenia_dni: float, anonimizacja: bool
                 df[kol] = df[kol].map(p)
         return df
 
-    zap = m.zapytania
     real = proces.czas_realizacji(m, g)
     zamk = real[real["Zamkniete"]]
-    porz = proces.porzucone(m, prog_porzucenia_dni)
+    porz = proces.porzucone(m, analiza.prog_porzucenia_dni)
     porz = porz.assign(Komu=[p(k) if c else k for k, c in zip(porz["Komu"], porz["CzyKonsultacja"])])
+    porz_wg_etapu = (porz.groupby(["Etap", "CzyKonsultacja"], dropna=False)
+                     .agg(liczba=("CzasDni", "size"), mediana_dni=("CzasDni", "median"))
+                     .reset_index().sort_values("liczba", ascending=False))
+    term = proces.terminowosc(m, g, analiza.statusy_przekazane)
+    spoznione = term[term["W terminie"] == False].head(15)  # noqa: E712
+    petle = proces.petle(m, g)
     return {
         "schemat": WERSJA_SCHEMATU,
         "meta": {
             "migawka": dzien, "pobrano_utc": m.teraz_utc,
             "pierwsze_zapytanie_id": m.pierwsze_zapytanie_id, "data_graniczna_workflow": m.data_startu,
-            "anonimizacja_osob": anonimizacja, "prog_porzucenia_dni": prog_porzucenia_dni,
-            "jednostka_czasu": "dni kalendarzowe",
+            "anonimizacja_osob": analiza.json_anonimizacja, "prog_porzucenia_dni": analiza.prog_porzucenia_dni,
+            "zaleznosci_grup": analiza.zaleznosci_grup, "tolerancja_zaleznosci_dni": analiza.tolerancja_zaleznosci_dni,
+            "statusy_przekazane": analiza.statusy_przekazane, "jednostka_czasu": "dni kalendarzowe",
+            "slownik_dzialow_wpisow": len(slownik),
         },
         "podsumowanie": {str(r["Pozycja"]).strip(): _czysc(r["Wartość"])
                          for r in kontrola.podsumowanie(m).to_dict(orient="records")},
         "czas_realizacji_zamknietych": {
             "zapytania": len(zamk), "mediana_dni": _czysc(zamk["CzasRealizacjiDni"].median()),
             "p80_dni": _czysc(zamk["CzasRealizacjiDni"].quantile(0.8)) if len(zamk) else None,
-            "w_terminie_klienta": _czysc(
-                (zap["TransferToCustomerDate"].dt.normalize() <= zap["SubmissionDateRequired"].dt.normalize())
-                [zap["TransferToCustomerDate"].notna() & zap["SubmissionDateRequired"].notna()].mean()),
         },
-        "kontrola_danych": _rekordy(kontrola.kontrole(m)),
+        "terminowosc": {**{k: _czysc(v) for k, v in proces.terminowosc_podsumowanie(term).items()},
+                        "najbardziej_spoznione": _rekordy(osoby(spoznione, ["OwnerName"]))},
+        "kontrola_danych": _rekordy(kontrola.kontrole(m, tuple(analiza.statusy_przekazane))),
         "fazy": _rekordy(proces.fazy(m, g)),
-        "zbieranie_danych_galaz_krytyczna": _rekordy(proces.galaz_krytyczna(g)),
+        "zbieranie_danych_galaz_krytyczna": _rekordy(
+            proces.galaz_krytyczna(g, analiza.zaleznosci_grup, analiza.tolerancja_zaleznosci_dni)),
+        "zaleznosci_grup": _rekordy(
+            proces.zaleznosci_grup(g, analiza.zaleznosci_grup, analiza.tolerancja_zaleznosci_dni)),
         "etapy": _rekordy(kontrola.etapy(m)),
         "konsultacje_a_czas": _rekordy(proces.wplyw_konsultacji(g)),
         "konsultacje": konsultacje_podsumowanie(m, p),
+        "konsultacje_wg_dzialu": _rekordy(proces.konsultacje_wg_dzialu(m, slownik)),
+        "obciazenie_konsultantow": _rekordy(
+            osoby(proces.obciazenie_konsultantow(m, slownik), ["Konsultant"]).head(20)),
+        "petle": _rekordy(proces.petle_podsumowanie(petle)),
         "cofniecia": cofniecia(g),
+        "dlugie_oferty": _rekordy(proces.profil_dlugich(m, g)),
         "rozklad_czasow": _rekordy(proces.rozklad(g)),
         "trend_tygodniowy": _rekordy(trend_tygodniowy(m, g)),
+        "porzucone_podsumowanie": {"liczba": len(porz), "wg_etapu": _rekordy(porz_wg_etapu)},
         "porzucone": _rekordy(osoby(porz, ["OwnerName"]).head(30)),
         "najdluzsze_zadania": _rekordy(osoby(proces.najdluzsze(g, 20), ["OwnerName", "Wykonal"])),
     }

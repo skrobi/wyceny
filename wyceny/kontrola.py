@@ -20,7 +20,7 @@ def _przyklady(df: pd.DataFrame, kol: str = "TenderEnquiryNumber", n: int = 8) -
     return ", ".join(str(int(v)) if isinstance(v, float) else str(v) for v in wartosci)
 
 
-def kontrole(m: Model) -> pd.DataFrame:
+def kontrole(m: Model, statusy_przekazane: tuple[int, ...] = (9,)) -> pd.DataFrame:
     z, wf, zap = m.zadania, m.workflow, m.zapytania
     wiersze = []
 
@@ -42,8 +42,8 @@ def kontrole(m: Model) -> pd.DataFrame:
           "Konsultacja utworzona po dacie granicznej z obiegu sprzed tej daty. Poza zakresem.",
           kol="InstanceId", rodzaj="Informacja")
     dodaj("Workflow bez zapytania", korzenie[korzenie["Zakres"] == ZAKRES_BRAK],
-          "Obieg, którego nie wskazuje żadne zapytanie (np. obieg zastąpiony nowym albo zapytanie usunięte). "
-          "Jeśli jest ich dużo, tracimy historię części zapytań.", kol="InstanceId")
+          "Obieg, którego nie wskazuje żadne zapytanie – zapytanie usunięte albo obieg nieuruchomiony do końca. "
+          "Pomijany.", kol="InstanceId", rodzaj="Informacja")
     dodaj("Zadania zakończone bez czasu zakończenia",
           z[(z["Stan"] == ZAKONCZONE) & z["ZakonczonoUtc"].isna()],
           "Decyzja jest zapisana, ale nie udało się ustalić jej momentu (brak zdarzenia, EndTime i kroku następnego).")
@@ -60,6 +60,12 @@ def kontrole(m: Model) -> pd.DataFrame:
     dodaj("Otwarte zadania w zamkniętych zapytaniach",
           z[(z["Stan"] == OTWARTE) & z["ZapytanieOtwarte"].eq(False)],
           "Workflow czeka na decyzję, choć zapytanie ma status zamknięty (9–13).")
+    przek = zap[zap["StatusCode"].isin(statusy_przekazane)]
+    dodaj("Przekazane bez daty przekazania klientowi", przek[przek["TransferToCustomerDate"].isna()],
+          "Brak TransferToCustomerDate – jako datę oddania przyjęto ostatnią decyzję w „Przygotowaniu oferty”.",
+          rodzaj="Informacja")
+    dodaj("Przekazane bez terminu klienta", przek[przek["SubmissionDateRequired"].isna()],
+          "Brak SubmissionDateRequired – terminowości tych zapytań nie da się ocenić.")
     return pd.DataFrame(wiersze)
 
 
