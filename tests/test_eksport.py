@@ -59,8 +59,10 @@ class TestEksport(unittest.TestCase):
 
     def test_nowe_sekcje_v2(self):
         for klucz in ("zaleznosci_grup", "petle", "dlugie_oferty", "konsultacje_wg_dzialu",
-                      "obciazenie_konsultantow", "porzucone_podsumowanie"):
+                      "obciazenie_konsultantow", "porzucone_podsumowanie", "przeplyw"):
             self.assertIn(klucz, self.dane)
+        self.assertEqual(self.dane["przeplyw"]["prognoza"]["kierunek"], "stabilna")
+        self.assertEqual(self.dane["schemat"], 3)
         self.assertEqual(self.dane["porzucone_podsumowanie"]["liczba"], 2)
         tekst = json.dumps(self.dane["obciazenie_konsultantow"], ensure_ascii=False)
         self.assertNotIn("Konsultant C", tekst)

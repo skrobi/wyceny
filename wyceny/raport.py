@@ -1,12 +1,13 @@
 """Raport Excel."""
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import xlsxwriter
 
-from . import kontrola, proces
+from . import kontrola, proces, przeplyw
 from .config import Analiza
 from .model import Model, _do_lokalnego
 
@@ -38,6 +39,11 @@ SLOWNIK = [
     ("Koszt pętli", "Dni od cofnięcia do ponownego dojścia sprawy do etapu, który cofał."),
     ("Zmiana zakresu", "Cofnięcie do tworzenia RFQ – celowe, by dodać lub usunąć pozycje i zachować spójny przebieg."),
     ("Terminowość", "Oddano (TransferToCustomerDate lub ostatnia decyzja w Przygotowaniu oferty) ≤ termin klienta."),
+    ("Zapytania w toku (WIP)", "Rozpoczęte i niezamknięte na koniec tygodnia – zaległość."),
+    ("Przepustowość", "Liczba zapytań zamkniętych w tygodniu."),
+    ("Prawo Little'a", "Czas realizacji ≈ średnio w toku / przepustowość. Gdy wyraźnie większy od faktycznej mediany – "
+     "część zapytań w toku stoi (porzucone) albo zaległość rośnie."),
+    ("Dominująca faza", "Faza, w której zapytanie spędziło najwięcej czasu – „gdzie utknęło”."),
     ("Udział w czasie realizacji", "Suma czasów fazy / suma czasów realizacji zamkniętych zapytań."),
     ("Zadania wyjścia z obiegu", "„Ewentualne zmiany w RFQ/BOM” – pomijane we wszystkich zestawieniach."),
 ]
@@ -71,7 +77,11 @@ class Arkusz:
         if opis:
             ws.write(1, 0, opis, self.f_opis)
         start = 3
-        df = df.reset_index(drop=True)
+        df = df.reset_index(drop=True).copy()
+        for kol in df.columns:  # kolumny z obiektami date -> daty Excela
+            if df[kol].dtype == object and df[kol].map(lambda v: isinstance(v, date) or v is None).all() \
+                    and df[kol].notna().any():
+                df[kol] = pd.to_datetime(df[kol])
         dane = []
         for wiersz in df.itertuples(index=False):
             dane.append([None if (not isinstance(v, str) and pd.isna(v)) else
@@ -81,7 +91,8 @@ class Arkusz:
         for kol in df.columns:
             fmt = None
             if pd.api.types.is_datetime64_any_dtype(df[kol]):
-                fmt = self.f_data
+                bez_godzin = (df[kol].dropna() == df[kol].dropna().dt.normalize()).all()
+                fmt = self.f_dzien if bez_godzin else self.f_data
             elif kol in procenty:
                 fmt = self.f_pct
             elif pd.api.types.is_float_dtype(df[kol]):
@@ -99,6 +110,26 @@ class Arkusz:
             ws.set_column(i, i, szer)
         ws.freeze_panes(start + 1, 0)
         return ws
+
+    def wykres(self, ws, nazwa: str, df: pd.DataFrame, serie: list[str], kategorie: str, komorka: str,
+               tytul: str, typ: str = "line", podtyp: str | None = None, os_y: str = "") -> None:
+        """Wykres z danych tabeli zapisanej przez tabela() (nagłówek w wierszu 4, dane od wiersza 5)."""
+        if df.empty:
+            return
+        kolumny = list(df.columns)
+        ostatni = 3 + len(df)
+        wykres = self.wb.add_chart({"type": typ, **({"subtype": podtyp} if podtyp else {})})
+        k = kolumny.index(kategorie)
+        for nazwa_serii in serie:
+            i = kolumny.index(nazwa_serii)
+            wykres.add_series({"name": [nazwa, 3, i], "categories": [nazwa, 4, k, ostatni, k],
+                               "values": [nazwa, 4, i, ostatni, i]})
+        wykres.set_title({"name": tytul, "name_font": {"size": 12}})
+        wykres.set_x_axis({"num_format": "yyyy-mm-dd", "date_axis": True})
+        wykres.set_y_axis({"name": os_y})
+        wykres.set_legend({"position": "bottom"})
+        wykres.set_size({"width": 900, "height": 380})
+        ws.insert_chart(komorka, wykres)
 
 
 def zapisz(m: Model, dzien, sciezka: Path, analiza: Analiza | None = None,
@@ -118,6 +149,40 @@ def zapisz(m: Model, dzien, sciezka: Path, analiza: Analiza | None = None,
              "Pozycje „Do sprawdzenia” z liczbą > 0 wymagają wyjaśnienia, zanim zaufamy dalszym analizom.",
              szerokosci={"Kontrola": 40, "Liczba": 9, "Opis": 90, "Przykłady": 50})
     g = proces.zadania_glowne(m)
+    trend = przeplyw.trend_tygodniowy(m, g)
+    trend_tab = trend.rename(columns={
+        "tydzien_od": "Tydzień od", "pelny_tydzien": "Pełny tydzień", "nowe_zapytania": "Nowe",
+        "zamkniete_zapytania": "Zamknięte", "przyrost_netto": "Przyrost netto",
+        "zapytania_w_toku_koniec_tygodnia": "W toku (koniec tygodnia)",
+        "otwarte_zadania_koniec_tygodnia": "Otwarte zadania (koniec tygodnia)",
+        "mediana_realizacji_zamknietych_dni": "Realizacja zamkniętych – mediana (dni)"})
+    ws_p = a.tabela("Przepływ", trend_tab, "Przepływ zapytań tydzień po tygodniu",
+                    "Nowe = pierwsze zadanie w tygodniu; zamknięte = ostatnia decyzja zamkniętego zapytania. "
+                    "Ostatni tydzień jest niepełny.")
+    a.wykres(ws_p, "Przepływ", trend_tab, ["Nowe", "Zamknięte", "W toku (koniec tygodnia)"], "Tydzień od",
+             "K4" if len(trend_tab.columns) < 10 else "J4", "Napływ, zamknięcia i zapytania w toku", os_y="zapytania")
+    prognoza, projekcja = przeplyw.prognoza(m, g, trend)
+    prog_tab = pd.DataFrame([(k.replace("_", " "), v.isoformat() if isinstance(v, date) else v)
+                             for k, v in prognoza.items()], columns=["Miara", "Wartość"])
+    ws_pr = a.tabela("Prognoza", prog_tab, "Prognoza zaległości",
+                     "Średnie z ostatnich pełnych tygodni; prawo Little'a: czas realizacji ≈ średnio w toku / "
+                     "zamykanych tygodniowo × 7. Projekcja zakłada, że napływ i przepustowość się nie zmienią.",
+                     szerokosci={"Miara": 50, "Wartość": 14})
+    if not projekcja.empty:
+        r0 = len(prog_tab) + 6
+        ws_pr.write(r0, 0, "Projekcja zapytań w toku", a.f_tytul)
+        for i, w in enumerate(projekcja.itertuples(index=False), start=r0 + 1):
+            ws_pr.write_datetime(i, 0, pd.Timestamp(w.tydzien_od).to_pydatetime(), a.f_dzien)
+            ws_pr.write_number(i, 1, w.prognoza_w_toku, a.f_dec)
+    zal = przeplyw.zaleglosc_wg_fazy(m, g).rename(columns={"tydzien_od": "Tydzień od"})
+    ws_z = a.tabela("Zaległość wg fazy", zal, "Zapytania w toku wg fazy (koniec tygodnia)",
+                    "Faza zapytania = najdalsza faza spośród jego otwartych zadań głównych.")
+    a.wykres(ws_z, "Zaległość wg fazy", zal, [k for k in zal.columns if k != "Tydzień od"], "Tydzień od",
+             "B" + str(len(zal) + 7), "Zapytania w toku wg fazy", typ="column", podtyp="stacked", os_y="zapytania")
+    dom_pod, dom_lista = przeplyw.dominujaca_faza(m, g)
+    a.tabela("Dominująca faza", dom_pod, "Gdzie utyka zapytanie – faza, w której spędziło najwięcej czasu",
+             "Typy zapytań wg dominującej fazy. Lista zapytań – arkusz „Dominująca faza – lista”.",
+             szerokosci={"Dominująca faza": 28}, procenty=("% zapytań", "Udział fazy – mediana"))
     a.tabela("Fazy", proces.fazy(m, g), "Fazy procesu",
              "Czas w fazie liczony dla faz zakończonych; udział w czasie realizacji – dla zamkniętych zapytań.",
              szerokosci={"Faza": 28},
@@ -176,6 +241,8 @@ def zapisz(m: Model, dzien, sciezka: Path, analiza: Analiza | None = None,
     a.tabela("Oś czasu", o, "Oś czasu zapytań – zapytanie × faza",
              "Koniec pusty = faza w toku. Filtruj po numerze zapytania, żeby zobaczyć jego przebieg.",
              szerokosci={"Grupy": 40})
+    a.tabela("Dominująca faza – lista", dom_lista.rename(columns=NAGLOWKI), "Dominująca faza każdego zapytania", "",
+             szerokosci={"Dominująca faza": 28}, procenty=("Udział fazy w czasie realizacji",))
     a.tabela("Pętle – lista", p.drop(columns=["TenderEnquiryId"], errors="ignore").rename(columns=NAGLOWKI),
              "Wszystkie cofnięcia", "", szerokosci={"Etap cofający": 40, "Typ pętli": 40})
     a.tabela("Konsultacje", kontrola.konsultacje(m), "Konsultacje (przekierowania)",

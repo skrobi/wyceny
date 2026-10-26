@@ -9,7 +9,7 @@ Każdy krok kończy się działającym raportem do oceny.
 | 2. Model procesu | Fazy, oś czasu zapytania, gałąź krytyczna zbierania danych, konsultacje a czas, rozkłady, porzucone | ✅ |
 | 3. Hipotezy z pierwszej analizy | Zależność DJ→DTTW w gałęzi krytycznej, koszt pętli cofnięć, terminowość, konsultacje wg działów i obciążenie konsultantów, profil długich ofert | ✅ |
 | 3a. Statystyka podstawowa | P95, rozkłady wg produktu i klasyfikacji, porównanie spraw o podobnym zakresie | ⏳ |
-| 4. Wąskie gardła | WIP, przepustowość, czas oczekiwania, udział w czasie realizacji, ścieżka krytyczna fazy równoległej | ⏳ |
+| 4. Przepływ i prognoza | Napływ/zamknięcia/zapytania w toku tydzień po tygodniu z wykresem, zaległość wg fazy, prawo Little'a, prognoza zaległości, dominująca faza zapytania | ✅ |
 | 5. Konsultacje | Poziomy, rundy, macierz „kto do kogo”, czas dodany przez konsultacje, zawieszone konsultacje | ⏳ |
 | 6. Cofnięcia i pętle | Skąd i dokąd się cofa, ile kosztuje jedna pętla | ⏳ |
 | 7. Trendy | Tydzień po tygodniu: napływ, zamknięcia, WIP, czasy, terminowość; karty kontrolne | ⏳ |

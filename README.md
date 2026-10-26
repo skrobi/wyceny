@@ -36,6 +36,10 @@ Migawki (`data/`) i raporty (`raporty/`) zawierają dane osobowe – są w `.git
 |---|---|
 | Podsumowanie | Zakres analizy i liczby kontrolne: zapytania, workflow, zadania, konsultacje |
 | Kontrola danych | Problemy z danymi do sprawdzenia przed dalszymi analizami (m.in. zawieszone konsultacje) |
+| Przepływ | Tydzień po tygodniu: nowe, zamknięte, w toku – z wykresem |
+| Prognoza | Średni napływ i przepustowość, prawo Little'a, tygodnie na obsłużenie zaległości, projekcja |
+| Zaległość wg fazy | Zapytania w toku na koniec tygodnia wg fazy – wykres skumulowany |
+| Dominująca faza (+ lista) | Faza, w której zapytanie spędziło najwięcej czasu – typy zapytań |
 | Fazy | Czas w każdej fazie, powroty do fazy, udział w czasie realizacji |
 | Zbieranie danych | Faza równoległa: która grupa kończy ostatnia i o ile wydłuża fazę |
 | Konsultacje a czas | Czas zadań z konsultacjami i bez – wg etapu |
@@ -61,7 +65,8 @@ zostaną zgrupowane wg działów. Plik zawiera nazwiska, więc nie trafia do rep
 
 ```
 sql/            zapytania pobierające surowe dane (parametr: pierwsze Id zapytania lub data graniczna)
-wyceny/         config, migawka (pobieranie/wczytywanie), model, kontrola, proces (fazy, oś czasu), raport, eksport (JSON)
+wyceny/         config, migawka (pobieranie/wczytywanie), model, kontrola, proces (fazy, oś czasu),
+                przeplyw (trend, prognoza), slowniki, raport, eksport (JSON)
 .claude/skills/ analiza-wycen – jak asystent AI analizuje plik JSON
 tests/          testy na fikcyjnych danych: python -m unittest
 docs/           model-danych.md (jak wyglądają dane), plan.md (kolejne kroki)
