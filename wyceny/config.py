@@ -36,6 +36,14 @@ class Analiza:
     prog_porzucenia_dni: float = 30
     # pseudonimy osób w pliku JSON dla asystenta AI
     json_anonimizacja: bool = True
+    # statusy zapytania oznaczające przekazanie oferty klientowi (do oceny terminowości)
+    statusy_przekazane: list[int] = field(default_factory=lambda: [9])
+    # grupa -> grupy, na których dane czeka w fazie zbierania danych (np. DJ liczy na podstawie danych DTTW)
+    zaleznosci_grup: dict[str, list[str]] = field(default_factory=lambda: {"DJ": ["DTTW"]})
+    # jeśli grupa zależna skończy w tym czasie po grupie, na którą czeka, opóźnienie przypisujemy tamtej
+    tolerancja_zaleznosci_dni: float = 1.0
+    # słownik osoba (eID) -> dział dla konsultantów; plik lokalny, nie trafia do repozytorium
+    slownik_konsultantow: str = "slowniki/konsultanci.csv"
 
 
 @dataclass

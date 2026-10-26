@@ -44,6 +44,15 @@ Migawki (`data/`) i raporty (`raporty/`) zawierają dane osobowe – są w `.git
 | Porzucone | Zadania i konsultacje otwarte dłużej niż próg (domyślnie 30 dni) |
 | Najdłuższe zadania | 50 najdłuższych zakończonych zadań do omówienia |
 | Oś czasu | Zapytanie × faza: start, koniec, czas, rundy, konsultacje |
+| Zależności grup | Czy grupa zależna (DJ) kończy zaraz po tej, na którą czeka (DTTW), i ile pracuje sama |
+| Terminowość | Oferty przekazane klientowi: w terminie / spóźnione, skąd data oddania |
+| Pętle, Pętle – lista | Koszt cofnięć: ile dni do ponownego dojścia do etapu, zmiany zakresu vs korekty |
+| Długie oferty | Czym kończą się zadania przygotowania oferty trwające ponad 14 dni |
+| Konsultacje wg działu, Obciążenie konsultantów | Kto i jak szybko odpowiada na konsultacje |
+
+Słownik działów konsultantów: przy raporcie program tworzy/uzupełnia `slowniki/konsultanci.csv`
+(eID;Osoba;Konsultacje;Dzial). Wpisz dział w kolumnie `Dzial` – przy następnym raporcie konsultacje
+zostaną zgrupowane wg działów. Plik zawiera nazwiska, więc nie trafia do repozytorium.
 | Konsultacje | Każda konsultacja z zadaniem głównym, poziomem i rundą |
 | Zadania / Zapytania | Dane źródłowe do własnych filtrów |
 | Słownik | Definicje pojęć |

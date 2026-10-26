@@ -7,7 +7,8 @@ Każdy krok kończy się działającym raportem do oceny.
 | 0. Rozpoznanie | Model danych, konsultacje, słownik pojęć – `docs/model-danych.md` | ✅ |
 | 1. Szkielet + pobieranie | Konfiguracja, migawki CSV, model zadań i konsultacji, raport kontrolny | ✅ |
 | 2. Model procesu | Fazy, oś czasu zapytania, gałąź krytyczna zbierania danych, konsultacje a czas, rozkłady, porzucone | ✅ |
-| 3. Statystyka podstawowa | Czas realizacji, czasy etapów i grup (mediana, P80, P95), terminowość, rozkłady | ⏳ |
+| 3. Hipotezy z pierwszej analizy | Zależność DJ→DTTW w gałęzi krytycznej, koszt pętli cofnięć, terminowość, konsultacje wg działów i obciążenie konsultantów, profil długich ofert | ✅ |
+| 3a. Statystyka podstawowa | P95, rozkłady wg produktu i klasyfikacji, porównanie spraw o podobnym zakresie | ⏳ |
 | 4. Wąskie gardła | WIP, przepustowość, czas oczekiwania, udział w czasie realizacji, ścieżka krytyczna fazy równoległej | ⏳ |
 | 5. Konsultacje | Poziomy, rundy, macierz „kto do kogo”, czas dodany przez konsultacje, zawieszone konsultacje | ⏳ |
 | 6. Cofnięcia i pętle | Skąd i dokąd się cofa, ile kosztuje jedna pętla | ⏳ |

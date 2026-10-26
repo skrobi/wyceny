@@ -5,7 +5,8 @@ import argparse
 from datetime import date
 from pathlib import Path
 
-from . import config, eksport, migawka, raport
+from . import config, eksport, migawka, raport, slowniki
+from .config import KATALOG_PROJEKTU
 from .model import zbuduj
 
 
@@ -28,10 +29,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.polecenie in ("raport", "wszystko"):
         m = migawka.wczytaj(kfg, dzien)
         model = zbuduj(m, kfg.analiza)
+        sciezka_slownika = KATALOG_PROJEKTU / kfg.analiza.slownik_konsultantow
+        slowniki.aktualizuj_szablon(model, sciezka_slownika)
+        slownik = slowniki.wczytaj(sciezka_slownika)
+        print(f"Słownik konsultantów: {sciezka_slownika} (z działem: {len(slownik)})")
         plik = raport.zapisz(model, m.data, kfg.katalog_raportow / f"analiza_wycen_{m.data.isoformat()}.xlsx",
-                             kfg.analiza.prog_porzucenia_dni, kfg.analiza.strefa_czasowa)
+                             kfg.analiza, slownik)
         print(f"Raport: {plik}")
-        dane = eksport.zbuduj(model, m.data, kfg.analiza.prog_porzucenia_dni, kfg.analiza.json_anonimizacja)
+        dane = eksport.zbuduj(model, m.data, kfg.analiza, slownik)
         plik_json = eksport.zapisz(dane, plik.with_suffix(".json"))
         print(f"Plik dla asystenta AI: {plik_json}")
 

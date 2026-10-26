@@ -81,6 +81,15 @@ DS, ITCC, DTK, DTTW, DJ, DZ, DF_P, DLS, PROGRAM, EKSPEDYCJA, TRANSPORT, ITCK.
   „Ewentualne zmiany w BOM” – razem z konsultacjami uruchomionymi z nich.
 - Daty zapytania sprzed 1900 r. (np. `0001-01-01`, „pusta” data z .NET) traktowane są jako brak.
 
+## Ustalenia z zespołem
+
+- DJ liczy na podstawie danych DTTW – nie zatwierdzi przed DTTW (`zaleznosci_grup` w konfiguracji).
+- Cofnięcie z kalkulacji finansowej (DF-W) do tworzenia RFQ jest celowe: dodanie/usunięcie pozycji wymaga pełnego
+  przebiegu, bo po zatwierdzeniu BOM aplikacja wykonuje sprawdzenia i dopisuje wyliczenia historyczne.
+- Konsultacje DTTW są strukturalne: DTTW rozsyła sprawy do działów technicznych (przyrządy, malowanie, procesy
+  specjalne itd.), bo nie ma kompetencji, by zatwierdzić wszystko samodzielnie.
+- Workflow bez zapytania to obiegi usuniętych zapytań – pomijane.
+
 ## Pytania otwarte
 
 1. Czy przekazujący powinien czekać na odpowiedź konsultanta? Jeśli tak – zatwierdzanie przed odpowiedzią

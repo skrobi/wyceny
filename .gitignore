@@ -1,6 +1,7 @@
 # dane z bazy i raporty zawierają dane osobowe – nie commitujemy ich
 data/
 raporty/
+slowniki/
 config.toml
 __pycache__/
 *.pyc
