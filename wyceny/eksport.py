@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from . import kontrola, proces
+from . import kontrola, proces, przeplyw
 from .config import Analiza
 from .model import Model
 
-WERSJA_SCHEMATU = 2
+WERSJA_SCHEMATU = 3
 
 
 class Pseudonimy:
@@ -66,30 +66,6 @@ def _rekordy(df: pd.DataFrame) -> list[dict]:
     if df is None or df.empty:
         return []
     return [{str(k): _czysc(v) for k, v in w.items()} for w in df.to_dict(orient="records")]
-
-
-def trend_tygodniowy(m: Model, g: pd.DataFrame) -> pd.DataFrame:
-    """Tydzień po tygodniu: napływ, zamknięcia, zapytania w toku i otwarte zadania na koniec tygodnia."""
-    real = proces.czas_realizacji(m, g)
-    if real.empty:
-        return pd.DataFrame()
-    start = real["StartUtc"].min().normalize()
-    poczatki = pd.date_range(start - pd.Timedelta(days=start.dayofweek), m.teraz_utc, freq="7D")
-    wiersze = []
-    for pocz in poczatki:
-        kon = pocz + pd.Timedelta(days=7)
-        zamk_w_tyg = real[real["Zamkniete"] & (real["KoniecUtc"] >= pocz) & (real["KoniecUtc"] < kon)]
-        w_toku = real[(real["StartUtc"] < kon) & (~real["Zamkniete"] | (real["KoniecUtc"] >= kon))]
-        otw_zad = g[(g["PrzypisanoUtc"] < kon) & (g["KoniecUtc"] >= kon)]
-        wiersze.append({
-            "tydzien_od": pocz.date(),
-            "nowe_zapytania": int(((real["StartUtc"] >= pocz) & (real["StartUtc"] < kon)).sum()),
-            "zamkniete_zapytania": len(zamk_w_tyg),
-            "zapytania_w_toku_koniec_tygodnia": len(w_toku),
-            "otwarte_zadania_koniec_tygodnia": len(otw_zad),
-            "mediana_realizacji_zamknietych_dni": zamk_w_tyg["CzasRealizacjiDni"].median(),
-        })
-    return pd.DataFrame(wiersze)
 
 
 def konsultacje_podsumowanie(m: Model, p: Pseudonimy) -> dict:
@@ -166,6 +142,9 @@ def zbuduj(m: Model, dzien: date, analiza: Analiza | None = None, slownik: dict[
     term = proces.terminowosc(m, g, analiza.statusy_przekazane)
     spoznione = term[term["W terminie"] == False].head(15)  # noqa: E712
     petle = proces.petle(m, g)
+    trend = przeplyw.trend_tygodniowy(m, g)
+    prog, projekcja = przeplyw.prognoza(m, g, trend)
+    dom_pod, _ = przeplyw.dominujaca_faza(m, g)
     return {
         "schemat": WERSJA_SCHEMATU,
         "meta": {
@@ -200,7 +179,13 @@ def zbuduj(m: Model, dzien: date, analiza: Analiza | None = None, slownik: dict[
         "cofniecia": cofniecia(g),
         "dlugie_oferty": _rekordy(proces.profil_dlugich(m, g)),
         "rozklad_czasow": _rekordy(proces.rozklad(g)),
-        "trend_tygodniowy": _rekordy(trend_tygodniowy(m, g)),
+        "trend_tygodniowy": _rekordy(trend),
+        "przeplyw": {
+            "prognoza": {k: _czysc(v) for k, v in prog.items()},
+            "projekcja_w_toku": _rekordy(projekcja),
+            "zaleglosc_wg_fazy_ostatnie_12_tyg": _rekordy(przeplyw.zaleglosc_wg_fazy(m, g).tail(12)),
+            "dominujaca_faza": _rekordy(dom_pod),
+        },
         "porzucone_podsumowanie": {"liczba": len(porz), "wg_etapu": _rekordy(porz_wg_etapu)},
         "porzucone": _rekordy(osoby(porz, ["OwnerName"]).head(30)),
         "najdluzsze_zadania": _rekordy(osoby(proces.najdluzsze(g, 20), ["OwnerName", "Wykonal"])),

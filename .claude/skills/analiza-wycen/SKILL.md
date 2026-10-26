@@ -29,7 +29,7 @@ nazwij je hipotezami do sprawdzenia z zespołem.
   pracy, a nie objawem problemu. Szukaj, **które działy** (`konsultacje_wg_dzialu`) i **które osoby**
   (`obciazenie_konsultantow`) odpowiadają wolno lub są przeciążone.
 
-## Struktura pliku (`schemat` = 2)
+## Struktura pliku (`schemat` = 3)
 
 | Klucz | Zawartość |
 |---|---|
@@ -50,7 +50,11 @@ nazwij je hipotezami do sprawdzenia z zespołem.
 | `cofniecia` | etap, który cofnął, decyzja, faza, do której zapytanie wróciło, liczba |
 | `dlugie_oferty` | zadania „Przygotowanie oferty” > 14 dni wg decyzji: ile, mediana, ile w zapytaniach anulowanych i z rewizją |
 | `rozklad_czasow` | liczba zakończonych zadań w przedziałach < 1 / 1–3 / 3–7 / 7–14 / 14–30 / > 30 dni |
-| `trend_tygodniowy` | tydzień po tygodniu: nowe, zamknięte, w toku, otwarte zadania, mediana realizacji zamkniętych |
+| `trend_tygodniowy` | tydzień po tygodniu: nowe, zamknięte, przyrost netto, w toku, otwarte zadania, mediana realizacji zamkniętych; `pelny_tydzien` = false dla bieżącego |
+| `przeplyw.prognoza` | średni napływ i przepustowość z ostatnich pełnych tygodni, kierunek zaległości, czas realizacji z prawa Little'a vs faktyczny, tygodnie na obsłużenie zaległości, prognoza w toku |
+| `przeplyw.projekcja_w_toku` | prognozowana liczba zapytań w toku na kolejne tygodnie (ekstrapolacja liniowa) |
+| `przeplyw.zaleglosc_wg_fazy_ostatnie_12_tyg` | zapytania w toku na koniec tygodnia wg fazy (najdalsza faza otwartych zadań; „Bez otwartego zadania”) |
+| `przeplyw.dominujaca_faza` | typy zapytań wg fazy, w której spędziły najwięcej czasu: ile, w toku, mediana realizacji |
 | `porzucone_podsumowanie` | pełna liczba porzuconych i podział wg etapu |
 | `porzucone` | do 30 najstarszych otwartych zadań/konsultacji starszych niż próg |
 | `najdluzsze_zadania` | 20 najdłuższych zakończonych zadań |
@@ -67,6 +71,12 @@ nazwij je hipotezami do sprawdzenia z zespołem.
   lub aplikacji, nie realna praca w toku.
 - **Mediana vs P80**: duża różnica (np. 0,2 vs 14 dni) oznacza etap o „dwóch obliczach” – potwierdź w `rozklad_czasow`.
 - Dni są **kalendarzowe** (weekendy i święta wliczone).
+- **Prawo Little'a**: jeśli czas z Little'a jest wyraźnie większy niż faktyczna mediana, część zapytań w toku stoi
+  (sprawdź `porzucone_podsumowanie`) albo zaległość rośnie – to nie błąd obliczeń.
+- **Prognoza** to prosta ekstrapolacja średnich z okna (`okno_tygodni`); przy małej liczbie tygodni lub zmianach
+  sezonowych traktuj ją jako orientacyjną i tak ją opisuj.
+- **„Bez otwartego zadania”** w zaległości wg fazy = zapytanie w toku, które czeka na krok automatyczny, tylko na
+  konsultację albo ma zawieszony obieg – warto je przejrzeć.
 - Statystyki z małej liczby przypadków (< 10) oznaczaj jako niepewne.
 - Etapy pomijane z założenia: „Ewentualne zmiany w RFQ/BOM” (zadania wyjścia z obiegu) – ich brak jest celowy.
 
@@ -85,7 +95,9 @@ nazwij je hipotezami do sprawdzenia z zespołem.
    (celowe – pytanie, czy dało się je wykryć wcześniej) i korekty danych.
 6. **Terminowość** – `terminowosc`: odsetek w terminie, spóźnienia, braki danych.
 7. **Zaległości** – `porzucone_podsumowanie`, `porzucone`: ile, w jakich etapach, czy dotyczą zapytań w toku.
-8. **Trend** – `trend_tygodniowy`: czy przybywa zapytań w toku (napływ > zamknięcia), czy czas realizacji rośnie.
+8. **Przepływ i prognoza** – `przeplyw`, `trend_tygodniowy`: czy zaległość rośnie (przyrost netto, kierunek),
+   w której fazie gromadzą się zapytania (`zaleglosc_wg_fazy…`), jak wypada Little vs faktyczny czas,
+   ile tygodni zajmie obsłużenie zaległości, jaki typ zapytań (dominująca faza) przeważa.
 
 ## Format odpowiedzi
 
