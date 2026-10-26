@@ -1,4 +1,4 @@
--- Wszystkie kroki (ExecutionPointer) workflow utworzonych od daty startu (parametr ?),
+-- Wszystkie kroki (ExecutionPointer) workflow utworzonych od technicznej daty granicznej (parametr ?) – obiegi zapytań z zakresu powstają po niej,
 -- także automatyczne – potrzebne do osi czasu i ustalania końca zadań.
 SELECT
     e.PersistenceId,

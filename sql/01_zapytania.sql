@@ -1,4 +1,4 @@
--- Zapytania ofertowe, które wpłynęły od daty startu (parametr ?).
+-- Zapytania ofertowe od pierwszego analizowanego zapytania: TenderEnquiryId >= ? (wcześniejsze to głównie testy).
 -- Daty sprzed 1900 (np. 0001-01-01 zapisywane przez .NET jako „brak”) zwracane jako NULL.
 SELECT
     te.TenderEnquiryId,
@@ -30,4 +30,4 @@ LEFT JOIN dbo.TypeOfEnquiry toe           ON toe.Id = te.TypeOfEnquiryId
 LEFT JOIN dbo.Product prod                ON prod.Id = te.ProductId
 LEFT JOIN dbo.ClassificationOfEnquiry coe ON coe.Id = te.ClassificationId
 LEFT JOIN dbo.ResponsiblePerson rp        ON rp.Id = te.ResponsiblePersonId
-WHERE te.DateRequestReceived >= ?;
+WHERE te.TenderEnquiryId >= ?;

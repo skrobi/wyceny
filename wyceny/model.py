@@ -34,12 +34,21 @@ WF_URUCHOMIONY, WF_WSTRZYMANY = 0, 1
 KROK_ZAKONCZONY, KROK_CZEKA_NA_ZDARZENIE = 3, 5
 
 
+ZAKRES_OK = "W zakresie"
+ZAKRES_PRZED_STARTEM = "Zapytanie spoza zakresu"
+ZAKRES_KONSULTACJA_PRZED_STARTEM = "Konsultacja z obiegu sprzed daty granicznej"
+ZAKRES_BRAK = "Brak zapytania"
+
+
 @dataclass
 class Model:
     teraz_utc: pd.Timestamp
     zapytania: pd.DataFrame
     workflow: pd.DataFrame
-    zadania: pd.DataFrame
+    zadania: pd.DataFrame            # tylko zadania zapytań z zakresu (TenderEnquiryId >= pierwsze_zapytanie_id)
+    zadania_poza_zakresem: pd.DataFrame
+    data_startu: object = None
+    pierwsze_zapytanie_id: int | None = None
 
 
 def _rozpakuj(wartosc):
@@ -98,6 +107,10 @@ def zbuduj(m: Migawka, analiza: Analiza, teraz_utc: pd.Timestamp | None = None) 
     # ---------- zapytania ----------
     zap = m.zapytania.copy()
     zap["WorkflowId"] = zap["WorkflowId"].astype("string").str.lower()
+    # filtr także tutaj, żeby starsze migawki (pobrane z innym zakresem) dawały ten sam wynik
+    przed_progiem = zap["TenderEnquiryId"] < (analiza.pierwsze_zapytanie_id or 0)
+    wf_spoza_zakresu = set(zap.loc[przed_progiem, "WorkflowId"].dropna())
+    zap = zap[~przed_progiem].copy()
     zap["Status"] = zap["StatusCode"].map(STATUSY_ZAPYTANIA)
     zap["CzyOtwarte"] = ~zap["StatusCode"].isin(analiza.statusy_zamkniete)
 
@@ -105,6 +118,11 @@ def zbuduj(m: Migawka, analiza: Analiza, teraz_utc: pd.Timestamp | None = None) 
     wf = _drzewo_workflow(m.workflow)
     zap_po_wf = dict(zip(zap["WorkflowId"], zap["TenderEnquiryId"]))
     wf["TenderEnquiryId"] = wf["korzen"].map(zap_po_wf).astype("Int64")
+    wszystkie = set(m.powiazania["WorkflowId"].dropna().astype(str).str.lower()) | wf_spoza_zakresu
+    korzen_ma_rodzica = wf["korzen"].map(dict(zip(wf["InstanceId"], wf["Reference"].fillna("")))).ne("")
+    wf["Zakres"] = np.select(
+        [wf["TenderEnquiryId"].notna(), wf["korzen"].isin(wszystkie), korzen_ma_rodzica],
+        [ZAKRES_OK, ZAKRES_PRZED_STARTEM, ZAKRES_KONSULTACJA_PRZED_STARTEM], default=ZAKRES_BRAK)
 
     # ---------- zadania użytkowników ----------
     kroki = m.kroki.merge(
@@ -196,6 +214,10 @@ def zbuduj(m: Migawka, analiza: Analiza, teraz_utc: pd.Timestamp | None = None) 
                                     & (zad["StanGlownego"].isin(["Zakończone", "Anulowane"])
                                        | zad["ZapytanieOtwarte"].eq(False)))
 
+    w_zakresie = zad["TenderEnquiryId"].notna()
+    poza = zad[~w_zakresie].merge(wf[["InstanceId", "Zakres"]], on="InstanceId", how="left")
+    zad = zad[w_zakresie]
+
     kolumny = ["TenderEnquiryId", "TenderEnquiryNumber", "Client", "OwnerName", "ZapytanieOtwarte",
                "WorkflowDefinitionId", "InstanceId", "Id", "StepId", "Prompt", "AssignedPrincipal", "Grupa",
                "CzyKonsultacja", "PoziomKonsultacji", "Runda", "Konsultant", "ZadanieNadrzedne", "ZadanieGlowne",
@@ -204,4 +226,6 @@ def zbuduj(m: Migawka, analiza: Analiza, teraz_utc: pd.Timestamp | None = None) 
                "UserNameFrom", "Comment"]
     zad = zad[kolumny].sort_values(["TenderEnquiryNumber", "PrzypisanoUtc"]).reset_index(drop=True)
 
-    return Model(teraz_utc=teraz_utc, zapytania=zap, workflow=wf, zadania=zad)
+    return Model(teraz_utc=teraz_utc, zapytania=zap, workflow=wf, zadania=zad,
+                 data_startu=analiza.data_startu, pierwsze_zapytanie_id=analiza.pierwsze_zapytanie_id,
+                 zadania_poza_zakresem=poza[["InstanceId", "Id", "Prompt", "Stan", "Zakres"]])

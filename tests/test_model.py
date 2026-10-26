@@ -10,7 +10,8 @@ from tests import dane_testowe as d
 class TestModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.m = zbuduj(d.migawka(), Analiza())
+        # dane testowe mają Id 410/411 – próg 0, żeby wszystkie były w zakresie
+        cls.m = zbuduj(d.migawka(), Analiza(pierwsze_zapytanie_id=0))
         cls.z = cls.m.zadania.set_index("Id")
 
     def test_pomija_zadania_wyjscia_z_obiegu(self):
@@ -22,6 +23,7 @@ class TestModel(unittest.TestCase):
         self.assertEqual(wf.loc[d.F3, "korzen"], d.M)
         self.assertEqual(wf.loc[d.F3, "TenderEnquiryId"], 410)
         self.assertTrue(pd.isna(wf.loc[d.G, "TenderEnquiryId"]))
+        self.assertEqual(wf.loc[d.N, "TenderEnquiryId"], 411)
 
     def test_koniec_zadania_z_kroku_nastepnego(self):
         self.assertEqual(self.z.loc["p-ds", "ZakonczonoUtc"], pd.Timestamp("2026-08-13 10:54"))
@@ -59,8 +61,25 @@ class TestModel(unittest.TestCase):
         # wrzesień = czas letni, UTC+2
         self.assertEqual(self.z.loc["p-dttw", "Przypisano"], pd.Timestamp("2026-09-10 14:21"))
 
-    def test_zadanie_bez_zapytania_zostaje_w_modelu(self):
-        self.assertTrue(pd.isna(self.z.loc["g1", "TenderEnquiryId"]))
+    def test_zakres_workflow(self):
+        wf = self.m.workflow.set_index("InstanceId")["Zakres"]
+        self.assertEqual(wf[d.M], "W zakresie")
+        self.assertEqual(wf[d.F3], "W zakresie")
+        self.assertEqual(wf[d.G], "Zapytanie spoza zakresu")
+        self.assertEqual(wf[d.H], "Brak zapytania")
+        self.assertEqual(wf[d.K], "Konsultacja z obiegu sprzed daty granicznej")
+
+    def test_prog_id_dziala_na_starszej_migawce(self):
+        # migawka pobrana z innym zakresem: zapytanie 410 < 758 musi wypaść z analizy
+        m = zbuduj(d.migawka(), Analiza(pierwsze_zapytanie_id=411))
+        self.assertEqual(set(m.zapytania["TenderEnquiryId"]), {411})
+        self.assertNotIn(2178, set(m.zadania["TenderEnquiryNumber"]))
+        self.assertEqual(m.workflow.set_index("InstanceId").loc[d.M, "Zakres"], "Zapytanie spoza zakresu")
+
+    def test_zadania_spoza_zakresu_pominiete(self):
+        for zid in ("g1", "h1", "k1"):
+            self.assertNotIn(zid, self.z.index)
+        self.assertEqual(set(self.m.zadania_poza_zakresem["Id"]), {"g1", "h1", "k1"})
 
 
 if __name__ == "__main__":

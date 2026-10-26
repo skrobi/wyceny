@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .model import Model
+from .model import (ZAKRES_BRAK, ZAKRES_KONSULTACJA_PRZED_STARTEM, ZAKRES_OK, ZAKRES_PRZED_STARTEM,
+                    Model)
 
 ZAKONCZONE = "Zakończone"
 OTWARTE = "Otwarte"
@@ -23,18 +24,26 @@ def kontrole(m: Model) -> pd.DataFrame:
     z, wf, zap = m.zadania, m.workflow, m.zapytania
     wiersze = []
 
-    def dodaj(nazwa: str, df: pd.DataFrame, opis: str, kol: str = "TenderEnquiryNumber"):
-        wiersze.append({"Kontrola": nazwa, "Liczba": len(df), "Opis": opis,
-                        "Przykłady": _przyklady(df, kol) if len(df) else ""})
+    def dodaj(nazwa: str, df: pd.DataFrame, opis: str, kol: str = "TenderEnquiryNumber",
+              rodzaj: str = "Do sprawdzenia"):
+        wiersze.append({"Kontrola": nazwa, "Rodzaj": rodzaj if len(df) else "OK", "Liczba": len(df),
+                        "Opis": opis, "Przykłady": _przyklady(df, kol) if len(df) else ""})
 
     znane_wf = set(wf["InstanceId"])
     dodaj("Zapytania bez workflow w danych",
           zap[~zap["WorkflowId"].isin(znane_wf)],
           "WorkflowId zapytania nie występuje wśród pobranych workflow (np. zapytanie bez uruchomionego obiegu).")
-    glowne_bez = wf[(wf["glebokosc"] == 0) & wf["TenderEnquiryId"].isna()]
-    dodaj("Workflow główne bez zapytania", glowne_bez,
-          "Główne instancje workflow niepowiązane z zapytaniem z zakresu (np. zapytanie sprzed daty startu "
-          "albo usunięte). Ich zadania nie trafiają do analiz zapytań.", kol="WorkflowDefinitionId")
+    korzenie = wf[wf["glebokosc"] == 0]
+    dodaj("Workflow zapytań spoza zakresu", korzenie[korzenie["Zakres"] == ZAKRES_PRZED_STARTEM],
+          "Obieg zapytania o Id mniejszym niż pierwsze analizowane (m.in. testy). "
+          "Pominięty zgodnie z konfiguracją.", kol="InstanceId", rodzaj="Informacja")
+    dodaj("Konsultacje z obiegów sprzed daty granicznej",
+          korzenie[korzenie["Zakres"] == ZAKRES_KONSULTACJA_PRZED_STARTEM],
+          "Konsultacja utworzona po dacie granicznej z obiegu sprzed tej daty. Poza zakresem.",
+          kol="InstanceId", rodzaj="Informacja")
+    dodaj("Workflow bez zapytania", korzenie[korzenie["Zakres"] == ZAKRES_BRAK],
+          "Obieg, którego nie wskazuje żadne zapytanie (np. obieg zastąpiony nowym albo zapytanie usunięte). "
+          "Jeśli jest ich dużo, tracimy historię części zapytań.", kol="InstanceId")
     dodaj("Zadania zakończone bez czasu zakończenia",
           z[(z["Stan"] == ZAKONCZONE) & z["ZakonczonoUtc"].isna()],
           "Decyzja jest zapisana, ale nie udało się ustalić jej momentu (brak zdarzenia, EndTime i kroku następnego).")
@@ -58,10 +67,15 @@ def podsumowanie(m: Model) -> pd.DataFrame:
     z, wf, zap = m.zadania, m.workflow, m.zapytania
     kons = z[z["CzyKonsultacja"]]
     pozycje = [
-        ("Zapytania (od daty startu)", len(zap)),
+        ("Pierwsze analizowane zapytanie (TenderEnquiryId od)", m.pierwsze_zapytanie_id),
+        ("Data graniczna pobierania workflow", str(m.data_startu)),
+        ("Zapytania w zakresie", len(zap)),
         ("  w tym otwarte", int(zap["CzyOtwarte"].sum())),
-        ("Instancje workflow", len(wf)),
-        ("  w tym konsultacje (ForwardWorkflow)", int((wf["WorkflowDefinitionId"] == "ForwardWorkflow").sum())),
+        ("Instancje workflow w zakresie", int((wf["Zakres"] == ZAKRES_OK).sum())),
+        ("  w tym konsultacje (ForwardWorkflow)",
+         int(((wf["Zakres"] == ZAKRES_OK) & (wf["WorkflowDefinitionId"] == "ForwardWorkflow")).sum())),
+        ("Instancje workflow poza zakresem (pominięte)", int((wf["Zakres"] != ZAKRES_OK).sum())),
+        ("Zadania poza zakresem (pominięte)", len(m.zadania_poza_zakresem)),
         ("Zadania użytkowników (bez zadań wyjścia z obiegu)", len(z)),
         ("  w tym konsultacje", len(kons)),
         ("  otwarte", int((z["Stan"] == OTWARTE).sum())),

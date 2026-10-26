@@ -9,10 +9,14 @@ M = "aaaaaaaa-0000-0000-0000-000000000001"   # główny workflow zapytania
 F1 = "bbbbbbbb-0000-0000-0000-000000000001"  # konsultacja do zadania DTK (nigdy niezamknięta)
 F2 = "bbbbbbbb-0000-0000-0000-000000000002"  # konsultacja do zadania DTTW (poziom 1)
 F3 = "bbbbbbbb-0000-0000-0000-000000000003"  # konsultacja z konsultacji (poziom 2, dwie rundy)
-G = "cccccccc-0000-0000-0000-000000000001"   # workflow bez zapytania
+G = "cccccccc-0000-0000-0000-000000000001"   # workflow zapytania spoza zakresu (Id < 758)
+N = "aaaaaaaa-0000-0000-0000-000000000002"   # drugie zapytanie – zamknięte, z rundą zbierania danych
+H = "cccccccc-0000-0000-0000-000000000002"   # workflow bez żadnego zapytania
+K = "bbbbbbbb-0000-0000-0000-000000000009"   # konsultacja z obiegu sprzed daty granicznej
+STARY = "eeeeeeee-0000-0000-0000-000000000001"
 
 T = pd.Timestamp
-INSTANCJA = {1: M, 2: F1, 3: F2, 4: F3, 5: G}
+INSTANCJA = {1: M, 2: F1, 3: F2, 4: F3, 5: G, 6: N, 7: H, 8: K}
 
 
 def migawka() -> Migawka:
@@ -24,6 +28,14 @@ def migawka() -> Migawka:
         "DataCompletionDeadline": T("2026-10-22"), "StartDateOfValuation": pd.NaT,
         "ValuationCompletionDate": pd.NaT, "SubmissionDateRequired": T("2026-10-26"),
         "TransferToCustomerDate": pd.NaT, "DateCompleted": pd.NaT, "CancelReason": None,
+    }, {
+        "TenderEnquiryId": 411, "TenderEnquiryNumber": 2179, "EnquiryRevision": 0, "Client": "Klient B",
+        "Synonym": None, "Country": "PL", "TypeOfEnquiry": "RFQ", "Product": "P", "Classification": "Części",
+        "StatusCode": 9, "OwnerName": "Właściciel Jan", "OwnerLMId": "e1", "OwnerUnit": "DSP",
+        "WorkflowId": N, "DateRequestReceived": T("2026-09-01"), "StartDateOfDataCollection": pd.NaT,
+        "DataCompletionDeadline": pd.NaT, "StartDateOfValuation": pd.NaT, "ValuationCompletionDate": pd.NaT,
+        "SubmissionDateRequired": T("2026-09-15"), "TransferToCustomerDate": T("2026-09-10"),
+        "DateCompleted": pd.NaT, "CancelReason": None,
     }])
     workflow = pd.DataFrame([
         {"PersistenceId": 1, "InstanceId": M, "WorkflowDefinitionId": "TenderEnquiryWorkflow", "Version": 1,
@@ -40,6 +52,15 @@ def migawka() -> Migawka:
          "UserNameFrom": None, "Comment": None},
         {"PersistenceId": 5, "InstanceId": G, "WorkflowDefinitionId": "TenderEnquiryWorkflow", "Version": 1,
          "Reference": None, "CreateTime": T("2026-09-01"), "CompleteTime": pd.NaT, "Status": 0,
+         "UserNameFrom": None, "Comment": None},
+        {"PersistenceId": 6, "InstanceId": N, "WorkflowDefinitionId": "TenderEnquiryWorkflow", "Version": 1,
+         "Reference": None, "CreateTime": T("2026-09-01 08:00"), "CompleteTime": T("2026-09-10 16:00"), "Status": 2,
+         "UserNameFrom": None, "Comment": None},
+        {"PersistenceId": 7, "InstanceId": H, "WorkflowDefinitionId": "TenderEnquiryWorkflow", "Version": 1,
+         "Reference": None, "CreateTime": T("2026-09-02"), "CompleteTime": pd.NaT, "Status": 0,
+         "UserNameFrom": None, "Comment": None},
+        {"PersistenceId": 8, "InstanceId": K, "WorkflowDefinitionId": "ForwardWorkflow", "Version": 1,
+         "Reference": f"{STARY}.x1", "CreateTime": T("2026-09-03"), "CompleteTime": pd.NaT, "Status": 0,
          "UserNameFrom": None, "Comment": None},
     ])
 
@@ -75,8 +96,27 @@ def migawka() -> Migawka:
              user="Konsultant C | e7", outcome="Zatwierdzono"),
         krok(402, 4, "f3b", 1, "UserTask", 3, "2026-09-29 08:26", "2026-10-19 08:14", event="UserAction", pub=1,
              user="Konsultant C | e7", outcome="Zatwierdzono"),
-        # workflow bez zapytania
+        # workflow zapytania spoza zakresu, workflow bez zapytania, konsultacja z obiegu sprzed daty granicznej
         krok(501, 5, "g1", 4, "UserTask", 5, "2026-09-01", event="UserAction"),
+        krok(701, 7, "h1", 4, "UserTask", 5, "2026-09-02", event="UserAction"),
+        krok(801, 8, "k1", 1, "UserTask", 5, "2026-09-03", event="UserAction"),
+        # zapytanie 2179: RFQ -> zbieranie danych (4 grupy równolegle, DZ ostatnia) -> kalkulacja (cofnięcie)
+        # -> druga runda zbierania (tylko DZ) -> kalkulacja -> oferta
+        krok(601, 6, "n-rfq", 4, "UserTask", 3, "2026-09-01 08:00", "2026-09-01 10:00", event="UserAction", pub=1),
+        krok(602, 6, "n-dj", 135, "UserTask", 3, "2026-09-01 12:00", "2026-09-03 12:00", event="UserAction", pub=1),
+        krok(603, 6, "n-dz", 154, "UserTask", 3, "2026-09-01 12:00", "2026-09-06 12:00", event="UserAction", pub=1),
+        krok(604, 6, "n-eks", 175, "UserTask", 3, "2026-09-01 12:00", "2026-09-02 12:00", event="UserAction",
+             pub=1),
+        krok(605, 6, "n-tra", 184, "UserTask", 3, "2026-09-02 12:00", "2026-09-04 12:00", event="UserAction",
+             pub=1),
+        krok(606, 6, "n-kal1", 200, "UserTask", 3, "2026-09-06 13:00", "2026-09-07 13:00", event="UserAction",
+             pub=1, outcome="Zwrócono do poprawy"),
+        krok(607, 6, "n-dz2", 154, "UserTask", 3, "2026-09-07 14:00", "2026-09-08 14:00", event="UserAction",
+             pub=1),
+        krok(608, 6, "n-kal2", 200, "UserTask", 3, "2026-09-08 15:00", "2026-09-09 15:00", event="UserAction",
+             pub=1, outcome="Zatwierdzono"),
+        krok(609, 6, "n-of", 300, "UserTask", 3, "2026-09-09 16:00", "2026-09-10 16:00", event="UserAction",
+             pub=1, outcome="Zatwierdzono"),
     ])
 
     atr = []
@@ -91,6 +131,17 @@ def migawka() -> Migawka:
         (401, '"Konsultant C | e7"', '"Konsultacja"', '"Konsultant C | e7"'),
         (402, '"Konsultant C | e7"', '"Konsultacja"', '"Konsultant C | e7"'),
         (501, '"RMS.APP_WYCENY_DS"', '"Utworzenie RFQ"', None),
+        (701, '"RMS.APP_WYCENY_DS"', '"Utworzenie RFQ"', None),
+        (801, '"Konsultant D | e8"', '"Konsultacja"', None),
+        (601, '"RMS.APP_WYCENY_DS"', '"Utworzenie RFQ"', None),
+        (602, '"RMS.APP_WYCENY_DJ"', '"Uzupełnienie kosztów (DJ)"', None),
+        (603, '"RMS.APP_WYCENY_DZ"', '"Uzupełnienie kosztów zakupowych (DZ)"', None),
+        (604, '"RMS.APP_WYCENY_EKSPEDYCJA"', '"Uzupełnienie kosztów transportu (Ekspedycja)"', None),
+        (605, '"RMS.APP_WYCENY_TRANSPORT"', '"Uzupełnienie kosztów transportu (Transport)"', None),
+        (606, '"RMS.APP_WYCENY_DF_W"', '"Kalkulacja finansowa (DF-W)"', None),
+        (607, '"RMS.APP_WYCENY_DZ"', '"Uzupełnienie kosztów zakupowych (DZ)"', None),
+        (608, '"RMS.APP_WYCENY_DF_W"', '"Kalkulacja finansowa (DF-W)"', None),
+        (609, '"RMS.APP_WYCENY_DS"', '"Przygotowanie oferty do klienta (DS)"', None),
     ]:
         atr.append({"ExecutionPointerId": pid, "AttributeKey": "AssignedPrincipal", "AttributeValue": grupa})
         atr.append({"ExecutionPointerId": pid, "AttributeKey": "Prompt", "AttributeValue": opis})
@@ -100,5 +151,11 @@ def migawka() -> Migawka:
     zdarzenia = pd.DataFrame([
         {"EventKey": f"{M}.p-dtk", "EventTime": T("2026-08-20 08:57"), "IsProcessed": 1},
     ])
+    powiazania = pd.DataFrame([
+        {"TenderEnquiryId": 300, "TenderEnquiryNumber": 1500, "WorkflowId": G, "DateRequestReceived": T("2026-03-01")},
+        {"TenderEnquiryId": 410, "TenderEnquiryNumber": 2178, "WorkflowId": M, "DateRequestReceived": T("2026-08-13")},
+        {"TenderEnquiryId": 411, "TenderEnquiryNumber": 2179, "WorkflowId": N, "DateRequestReceived": T("2026-09-01")},
+    ])
     return Migawka(data=date(2026, 10, 26), pobrano_utc=T("2026-10-26 08:00"), zapytania=zapytania,
-                   workflow=workflow, kroki=kroki, atrybuty=pd.DataFrame(atr), zdarzenia=zdarzenia)
+                   workflow=workflow, kroki=kroki, atrybuty=pd.DataFrame(atr), zdarzenia=zdarzenia,
+                   powiazania=powiazania)

@@ -1,4 +1,4 @@
--- Instancje workflow (główne, ForwardWorkflow i inne) utworzone od daty startu (parametr ?).
+-- Instancje workflow (główne, ForwardWorkflow i inne) utworzone od technicznej daty granicznej (parametr ?) – obiegi zapytań z zakresu powstają po niej.
 -- Reference podworkflow ma postać <InstanceId rodzica>.<Id kroku rodzica>.
 SELECT
     w.PersistenceId,

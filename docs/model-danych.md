@@ -49,13 +49,34 @@ Stan zadania:
 - Zadania w workflow głównym po decyzji pozostają `Status = 2` (Running, kontener) bez `EndTime`;
   zadania w gałęziach równoległych i konsultacjach dostają `Status = 3` i `EndTime`.
 
+## Fazy procesu (krok 2)
+
+Zadania workflow głównego są przypisane do faz po początku opisu (`wyceny/proces.py`, lista `FAZY`):
+
+| Faza | Zadania |
+|---|---|
+| Tworzenie RFQ | Utworzenie RFQ, Uzupełnienie Zapytania |
+| Weryfikacja ITC | Weryfikacja ITC |
+| Weryfikacja RFQ | Weryfikacja RFQ |
+| Weryfikacja dokumentacji | Weryfikacja dokumentacji technicznej |
+| Uzupełnienie BOM | Uzupełnienie BOM |
+| Rozeznanie produkcyjne | Rozeznanie produkcyjne |
+| Zbieranie danych (równolegle) | Uzupełnienie technologii, Uzupełnienie kosztów…, Weryfikacja klasyfikacji i autoryzacji (ITC), Pozostałe koszty |
+| Kalkulacja finansowa | Kalkulacja finansowa (DF-W) |
+| Przygotowanie oferty | Przygotowanie oferty do klienta |
+| Inne | pozostałe (np. Wymagana akcja serwisowa, Anulowane RFQ) |
+
+Czas w fazie to suma przedziałów, w których było otwarte co najmniej jedno zadanie fazy (równoległe liczone raz).
+Zadania fazy nakładające się w czasie tworzą rundę – powrót po cofnięciu to kolejna runda.
+
 ## Grupy zaobserwowane w próbce
 
 DS, ITCC, DTK, DTTW, DJ, DZ, DF_P, DLS, PROGRAM, EKSPEDYCJA, TRANSPORT, ITCK.
 
 ## Zakres i wykluczenia
 
-- Zapytania z `DateRequestReceived` od daty startu (domyślnie 2026-04-01), workflow utworzone od tej daty.
+- Zapytania od `TenderEnquiryId` = 758 (`pierwsze_zapytanie_id`); wcześniejsze to głównie testy.
+- Workflow, kroki i zdarzenia pobierane od daty granicznej `data_startu` (2026-04-01) – obiegi zapytań z zakresu powstały po niej.
 - Pomijane są zadania wyjścia z obiegu: opis zaczyna się od „Ewentualne zmiany w RFQ” lub
   „Ewentualne zmiany w BOM” – razem z konsultacjami uruchomionymi z nich.
 - Daty zapytania sprzed 1900 r. (np. `0001-01-01`, „pusta” data z .NET) traktowane są jako brak.

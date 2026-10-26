@@ -27,11 +27,13 @@ class Baza:
 
 @dataclass
 class Analiza:
+    pierwsze_zapytanie_id: int = 758
     data_startu: date = date(2026, 4, 1)
     pomijane_zadania: list[str] = field(
         default_factory=lambda: ["Ewentualne zmiany w RFQ", "Ewentualne zmiany w BOM"])
     statusy_zamkniete: list[int] = field(default_factory=lambda: [9, 10, 11, 12, 13])
     strefa_czasowa: str = "Europe/Warsaw"
+    prog_porzucenia_dni: float = 30
 
 
 @dataclass
