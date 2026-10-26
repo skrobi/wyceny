@@ -1,0 +1,23 @@
+# Skopiuj do config.toml i dostosuj. config.toml nie trafia do repozytorium.
+
+[baza]
+serwer = "splmcd08"
+baza = "WYCENY"
+sterownik = "ODBC Driver 18 for SQL Server"
+# Driver 18 domyślnie szyfruje połączenie; przy certyfikacie wewnętrznym potrzebne jest zaufanie do certyfikatu serwera.
+szyfrowanie = true
+ufaj_certyfikatowi = true
+
+[analiza]
+# Pomijamy dane sprzed rzeczywistego startu aplikacji.
+data_startu = "2026-04-01"
+# Zadania „wyjścia z obiegu” – nie są brane pod uwagę (porównanie po początku opisu zadania).
+pomijane_zadania = ["Ewentualne zmiany w RFQ", "Ewentualne zmiany w BOM"]
+# Statusy zapytania traktowane jako zamknięte.
+statusy_zamkniete = [9, 10, 11, 12, 13]
+# Strefa czasowa raportu (czasy w bazie workflow są w UTC).
+strefa_czasowa = "Europe/Warsaw"
+
+[katalogi]
+dane = "data"
+raporty = "raporty"
