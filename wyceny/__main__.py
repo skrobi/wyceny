@@ -5,7 +5,7 @@ import argparse
 from datetime import date
 from pathlib import Path
 
-from . import config, migawka, raport
+from . import config, eksport, migawka, raport
 from .model import zbuduj
 
 
@@ -31,6 +31,9 @@ def main(argv: list[str] | None = None) -> None:
         plik = raport.zapisz(model, m.data, kfg.katalog_raportow / f"analiza_wycen_{m.data.isoformat()}.xlsx",
                              kfg.analiza.prog_porzucenia_dni, kfg.analiza.strefa_czasowa)
         print(f"Raport: {plik}")
+        dane = eksport.zbuduj(model, m.data, kfg.analiza.prog_porzucenia_dni, kfg.analiza.json_anonimizacja)
+        plik_json = eksport.zapisz(dane, plik.with_suffix(".json"))
+        print(f"Plik dla asystenta AI: {plik_json}")
 
 
 if __name__ == "__main__":

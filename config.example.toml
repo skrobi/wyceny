@@ -21,6 +21,8 @@ statusy_zamkniete = [9, 10, 11, 12, 13]
 strefa_czasowa = "Europe/Warsaw"
 # Otwarte zadanie starsze niż tyle dni trafia do arkusza „Porzucone”.
 prog_porzucenia_dni = 30
+# Plik JSON dla asystenta AI: osoby zastępowane pseudonimami („Osoba 07”). Wyłącz tylko do użytku wewnętrznego.
+json_anonimizacja = true
 
 [katalogi]
 dane = "data"

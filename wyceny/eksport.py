@@ -1,0 +1,195 @@
+"""Eksport JSON do analizy przez asystenta AI (skill .claude/skills/analiza-wycen).
+
+Plik zawiera wyłącznie zagregowane zestawienia i krótkie listy przypadków – ma być mały i czytelny.
+Osoby są domyślnie zastąpione pseudonimami („Osoba 07”); grupy AD i klienci pozostają bez zmian.
+"""
+from __future__ import annotations
+
+import json
+import math
+from datetime import date, datetime
+from pathlib import Path
+
+import pandas as pd
+
+from . import kontrola, proces
+from .model import Model
+
+WERSJA_SCHEMATU = 1
+
+
+class Pseudonimy:
+    """Stałe pseudonimy osób w obrębie jednego pliku. „Nazwisko Imię | e123” i „Nazwisko Imię” to ta sama osoba."""
+
+    def __init__(self, wlaczone: bool):
+        self.wlaczone = wlaczone
+        self._mapa: dict[str, str] = {}
+
+    @staticmethod
+    def _klucz(osoba: str) -> str:
+        return osoba.split("|")[0].strip().lower()
+
+    def zarejestruj(self, *kolumny: pd.Series) -> None:
+        klucze = sorted({self._klucz(v) for k in kolumny for v in k.dropna() if isinstance(v, str)})
+        for i, kl in enumerate(klucze, start=1):
+            self._mapa.setdefault(kl, f"Osoba {i:02d}")
+
+    def __call__(self, wartosc):
+        if not self.wlaczone or not isinstance(wartosc, str):
+            return wartosc
+        return self._mapa.get(self._klucz(wartosc), "Osoba ?")
+
+
+def _czysc(v):
+    if v is None or v is pd.NaT:
+        return None
+    if isinstance(v, float):
+        if math.isnan(v):
+            return None
+        return int(v) if v.is_integer() else round(v, 2)
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return v.strftime("%Y-%m-%d %H:%M")
+    if isinstance(v, date):
+        return v.isoformat()
+    if hasattr(v, "item"):
+        return _czysc(v.item())
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def _rekordy(df: pd.DataFrame) -> list[dict]:
+    if df is None or df.empty:
+        return []
+    return [{str(k): _czysc(v) for k, v in w.items()} for w in df.to_dict(orient="records")]
+
+
+def trend_tygodniowy(m: Model, g: pd.DataFrame) -> pd.DataFrame:
+    """Tydzień po tygodniu: napływ, zamknięcia, zapytania w toku i otwarte zadania na koniec tygodnia."""
+    real = proces.czas_realizacji(m, g)
+    if real.empty:
+        return pd.DataFrame()
+    start = real["StartUtc"].min().normalize()
+    poczatki = pd.date_range(start - pd.Timedelta(days=start.dayofweek), m.teraz_utc, freq="7D")
+    wiersze = []
+    for pocz in poczatki:
+        kon = pocz + pd.Timedelta(days=7)
+        zamk_w_tyg = real[real["Zamkniete"] & (real["KoniecUtc"] >= pocz) & (real["KoniecUtc"] < kon)]
+        w_toku = real[(real["StartUtc"] < kon) & (~real["Zamkniete"] | (real["KoniecUtc"] >= kon))]
+        otw_zad = g[(g["PrzypisanoUtc"] < kon) & (g["KoniecUtc"] >= kon)]
+        wiersze.append({
+            "tydzien_od": pocz.date(),
+            "nowe_zapytania": int(((real["StartUtc"] >= pocz) & (real["StartUtc"] < kon)).sum()),
+            "zamkniete_zapytania": len(zamk_w_tyg),
+            "zapytania_w_toku_koniec_tygodnia": len(w_toku),
+            "otwarte_zadania_koniec_tygodnia": len(otw_zad),
+            "mediana_realizacji_zamknietych_dni": zamk_w_tyg["CzasRealizacjiDni"].median(),
+        })
+    return pd.DataFrame(wiersze)
+
+
+def konsultacje_podsumowanie(m: Model, p: Pseudonimy) -> dict:
+    z = m.zadania
+    k = z[z["CzyKonsultacja"]]
+    if k.empty:
+        return {}
+    zak = k[k["Stan"] == "Zakończone"]
+    wg_etapu = (k.groupby(["EtapGlowny", "GrupaGlowna"], dropna=False)
+                .agg(konsultacje=("Id", "size"), zadania_glowne=("ZadanieGlowne", "nunique"),
+                     maks_poziom=("PoziomKonsultacji", "max"), mediana_dni=("CzasDni", "median"),
+                     otwarte=("Stan", lambda s: int((s == "Otwarte").sum())),
+                     zawieszone=("ZawieszonaKonsultacja", "sum"))
+                .reset_index().sort_values("konsultacje", ascending=False))
+    poziomy = k["PoziomKonsultacji"].value_counts().sort_index()
+    rundy = k["Runda"].value_counts().sort_index()
+    konsultanci = (k.assign(Osoba=k["Konsultant"].map(p))
+                   .groupby("Osoba").agg(konsultacje=("Id", "size"), mediana_dni=("CzasDni", "median"),
+                                         otwarte=("Stan", lambda s: int((s == "Otwarte").sum())),
+                                         etapy=("EtapGlowny", lambda s: ", ".join(sorted(s.dropna().unique())[:3])))
+                   .reset_index().sort_values("konsultacje", ascending=False).head(15))
+    return {
+        "liczba": len(k), "zakonczone": len(zak), "otwarte": int((k["Stan"] == "Otwarte").sum()),
+        "zawieszone": int(k["ZawieszonaKonsultacja"].sum()),
+        "mediana_dni_zakonczonych": _czysc(zak["CzasDni"].median()),
+        "rozklad_poziomow": {str(int(i)): int(v) for i, v in poziomy.items()},
+        "rozklad_rund": {str(int(i)): int(v) for i, v in rundy.items()},
+        "wg_etapu": _rekordy(wg_etapu),
+        "najczesciej_konsultowani": _rekordy(konsultanci),
+    }
+
+
+def cofniecia(g: pd.DataFrame) -> list[dict]:
+    """Decyzje zwrotne wg etapu, który cofnął, i decyzji – oraz fazy, do której zapytanie wróciło."""
+    c = g[g["Cofniecie"] & g["ZakonczonoUtc"].notna()].copy()
+    if c.empty:
+        return []
+    po_zapytaniu = {zid: grp.sort_values("PrzypisanoUtc") for zid, grp in g.groupby("TenderEnquiryId")}
+
+    def faza_powrotu(w) -> str | None:
+        dalsze = po_zapytaniu[w["TenderEnquiryId"]]
+        dalsze = dalsze[(dalsze["PrzypisanoUtc"] >= w["ZakonczonoUtc"]) & (dalsze["Id"] != w["Id"])]
+        return dalsze["Faza"].iloc[0] if len(dalsze) else None
+
+    c["Faza powrotu"] = c.apply(faza_powrotu, axis=1)
+    wynik = (c.groupby(["Prompt", "Grupa", "Decyzja", "Faza powrotu"], dropna=False)
+             .size().rename("liczba").reset_index().sort_values("liczba", ascending=False))
+    return _rekordy(wynik.head(40).rename(columns={"Prompt": "etap_cofajacy", "Grupa": "grupa",
+                                          "Decyzja": "decyzja", "Faza powrotu": "faza_powrotu"}))
+
+
+def zbuduj(m: Model, dzien: date, prog_porzucenia_dni: float, anonimizacja: bool = True) -> dict:
+    z = m.zadania
+    g = proces.zadania_glowne(m)
+    p = Pseudonimy(anonimizacja)
+    p.zarejestruj(z["Konsultant"], z["Wykonal"], z["OwnerName"], m.zapytania["OwnerName"])
+
+    def osoby(df: pd.DataFrame, kolumny: list[str]) -> pd.DataFrame:
+        df = df.copy()
+        for kol in kolumny:
+            if kol in df.columns:
+                df[kol] = df[kol].map(p)
+        return df
+
+    zap = m.zapytania
+    real = proces.czas_realizacji(m, g)
+    zamk = real[real["Zamkniete"]]
+    porz = proces.porzucone(m, prog_porzucenia_dni)
+    porz = porz.assign(Komu=[p(k) if c else k for k, c in zip(porz["Komu"], porz["CzyKonsultacja"])])
+    return {
+        "schemat": WERSJA_SCHEMATU,
+        "meta": {
+            "migawka": dzien, "pobrano_utc": m.teraz_utc,
+            "pierwsze_zapytanie_id": m.pierwsze_zapytanie_id, "data_graniczna_workflow": m.data_startu,
+            "anonimizacja_osob": anonimizacja, "prog_porzucenia_dni": prog_porzucenia_dni,
+            "jednostka_czasu": "dni kalendarzowe",
+        },
+        "podsumowanie": {str(r["Pozycja"]).strip(): _czysc(r["Wartość"])
+                         for r in kontrola.podsumowanie(m).to_dict(orient="records")},
+        "czas_realizacji_zamknietych": {
+            "zapytania": len(zamk), "mediana_dni": _czysc(zamk["CzasRealizacjiDni"].median()),
+            "p80_dni": _czysc(zamk["CzasRealizacjiDni"].quantile(0.8)) if len(zamk) else None,
+            "w_terminie_klienta": _czysc(
+                (zap["TransferToCustomerDate"].dt.normalize() <= zap["SubmissionDateRequired"].dt.normalize())
+                [zap["TransferToCustomerDate"].notna() & zap["SubmissionDateRequired"].notna()].mean()),
+        },
+        "kontrola_danych": _rekordy(kontrola.kontrole(m)),
+        "fazy": _rekordy(proces.fazy(m, g)),
+        "zbieranie_danych_galaz_krytyczna": _rekordy(proces.galaz_krytyczna(g)),
+        "etapy": _rekordy(kontrola.etapy(m)),
+        "konsultacje_a_czas": _rekordy(proces.wplyw_konsultacji(g)),
+        "konsultacje": konsultacje_podsumowanie(m, p),
+        "cofniecia": cofniecia(g),
+        "rozklad_czasow": _rekordy(proces.rozklad(g)),
+        "trend_tygodniowy": _rekordy(trend_tygodniowy(m, g)),
+        "porzucone": _rekordy(osoby(porz, ["OwnerName"]).head(30)),
+        "najdluzsze_zadania": _rekordy(osoby(proces.najdluzsze(g, 20), ["OwnerName", "Wykonal"])),
+    }
+
+
+def zapisz(dane: dict, sciezka: Path) -> Path:
+    sciezka.parent.mkdir(parents=True, exist_ok=True)
+    sciezka.write_text(json.dumps(dane, ensure_ascii=False, indent=1, default=_czysc), encoding="utf-8")
+    return sciezka

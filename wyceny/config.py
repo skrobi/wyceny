@@ -34,6 +34,8 @@ class Analiza:
     statusy_zamkniete: list[int] = field(default_factory=lambda: [9, 10, 11, 12, 13])
     strefa_czasowa: str = "Europe/Warsaw"
     prog_porzucenia_dni: float = 30
+    # pseudonimy osób w pliku JSON dla asystenta AI
+    json_anonimizacja: bool = True
 
 
 @dataclass
